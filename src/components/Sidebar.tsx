@@ -6,7 +6,7 @@ interface SidebarProps {
   currentView: string;
   setView: (view: string) => void;
   subscribedChannels: Channel[];
-  onChannelFilter: (channelId: string | null) => void;
+  onChannelFilter: (channelId: string | null, shouldSetView?: boolean) => void;
   activeChannelFilter: string | null;
   collapsed: boolean;
   mobileOpen: boolean;
@@ -74,8 +74,8 @@ export default function Sidebar({
           <button
             id="nav-shorts"
             onClick={() => {
+              onChannelFilter(null, false);
               setView('shorts');
-              onChannelFilter(null);
               onCloseMobile();
             }}
             className={buttonClass(currentView === 'shorts')}
@@ -90,8 +90,8 @@ export default function Sidebar({
           <button
             id="nav-uploads"
             onClick={() => {
+              onChannelFilter(null, false);
               setView('uploads');
-              onChannelFilter(null);
               onCloseMobile();
             }}
             className={buttonClass(currentView === 'uploads')}
@@ -106,8 +106,8 @@ export default function Sidebar({
           <button
             id="nav-liked"
             onClick={() => {
+              onChannelFilter(null, false);
               setView('liked');
-              onChannelFilter(null);
               onCloseMobile();
             }}
             className={buttonClass(currentView === 'liked')}
@@ -122,8 +122,8 @@ export default function Sidebar({
           <button
             id="nav-history"
             onClick={() => {
+              onChannelFilter(null, false);
               setView('history');
-              onChannelFilter(null);
               onCloseMobile();
             }}
             className={buttonClass(currentView === 'history')}
@@ -138,8 +138,8 @@ export default function Sidebar({
           <button
             id="nav-watch-later"
             onClick={() => {
+              onChannelFilter(null, false);
               setView('watch-later');
-              onChannelFilter(null);
               onCloseMobile();
             }}
             className={buttonClass(currentView === 'watch-later')}
@@ -154,8 +154,8 @@ export default function Sidebar({
           <button
             id="nav-analytics"
             onClick={() => {
+              onChannelFilter(null, false);
               setView('analytics');
-              onChannelFilter(null);
               onCloseMobile();
             }}
             className={buttonClass(currentView === 'analytics')}
@@ -170,8 +170,8 @@ export default function Sidebar({
           <button
             id="nav-dev"
             onClick={() => {
+              onChannelFilter(null, false);
               setView('dev-console');
-              onChannelFilter(null);
               onCloseMobile();
             }}
             className={buttonClass(currentView === 'dev-console')}

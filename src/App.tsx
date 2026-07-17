@@ -57,17 +57,47 @@ export default function App() {
   // Load initial states from localStorage if they exist, otherwise use initial seed datasets
   const [videos, setVideos] = useState<Video[]>(() => {
     const saved = localStorage.getItem('metatube_videos');
-    return saved ? JSON.parse(saved) : INITIAL_VIDEOS;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as Video[];
+        const parsedIds = new Set(parsed.map(v => v.id));
+        const missing = INITIAL_VIDEOS.filter(v => !parsedIds.has(v.id));
+        return [...parsed, ...missing];
+      } catch (e) {
+        return INITIAL_VIDEOS;
+      }
+    }
+    return INITIAL_VIDEOS;
   });
 
   const [comments, setComments] = useState<Comment[]>(() => {
     const saved = localStorage.getItem('metatube_comments');
-    return saved ? JSON.parse(saved) : INITIAL_COMMENTS;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as Comment[];
+        const parsedIds = new Set(parsed.map(c => c.id));
+        const missing = INITIAL_COMMENTS.filter(c => !parsedIds.has(c.id));
+        return [...parsed, ...missing];
+      } catch (e) {
+        return INITIAL_COMMENTS;
+      }
+    }
+    return INITIAL_COMMENTS;
   });
 
   const [channels, setChannels] = useState<Channel[]>(() => {
     const saved = localStorage.getItem('metatube_channels');
-    return saved ? JSON.parse(saved) : INITIAL_CHANNELS;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as Channel[];
+        const parsedIds = new Set(parsed.map(c => c.id));
+        const missing = INITIAL_CHANNELS.filter(c => !parsedIds.has(c.id));
+        return [...parsed, ...missing];
+      } catch (e) {
+        return INITIAL_CHANNELS;
+      }
+    }
+    return INITIAL_CHANNELS;
   });
 
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
@@ -479,13 +509,13 @@ export default function App() {
   };
 
   // Channel filter sidebar handlers
-  const handleChannelFilter = (channelId: string | null) => {
+  const handleChannelFilter = (channelId: string | null, shouldSetView = true) => {
     setActiveChannelFilter(channelId);
     setSelectedCategory('All');
     if (channelId) {
-      setView('channel');
+      if (shouldSetView) setView('channel');
     } else {
-      setView('home');
+      if (shouldSetView) setView('home');
     }
   };
 
@@ -915,18 +945,50 @@ export default function App() {
                   </div>
                   <div className="space-y-1">
                     <p className="font-sans font-bold text-gray-700">
-                      {currentView === 'history' 
-                        ? 'Your watch history is empty' 
-                        : currentView === 'watch-later'
-                        ? 'Your Watch Later list is empty'
-                        : 'No videos matched your filters'}
+                      {settings.language === 'ar' ? (
+                        currentView === 'history'
+                          ? 'سجل المشاهدة فارغ'
+                          : currentView === 'watch-later'
+                          ? 'قائمة المشاهدة لاحقاً فارغة'
+                          : currentView === 'liked'
+                          ? 'لا توجد فيديوهات معجب بها بعد'
+                          : currentView === 'uploads'
+                          ? 'قائمة المرفوعات فارغة'
+                          : 'لم يتم العثور على أي فيديوهات مطابقة'
+                      ) : (
+                        currentView === 'history' 
+                          ? 'Your watch history is empty' 
+                          : currentView === 'watch-later'
+                          ? 'Your Watch Later list is empty'
+                          : currentView === 'liked'
+                          ? 'No liked videos yet'
+                          : currentView === 'uploads'
+                          ? 'No uploaded videos yet'
+                          : 'No videos matched your filters'
+                      )}
                     </p>
                     <p className="text-xs text-gray-500 font-sans max-w-sm">
-                      {currentView === 'history' 
-                        ? 'Select and play recommended videos on the home feed to build up your watch history.' 
-                        : currentView === 'watch-later'
-                        ? 'Click the clock icon overlay on any video card to save videos for later.'
-                        : 'Try resetting active search terms, choosing another category chip, or uploading a new file.'}
+                      {settings.language === 'ar' ? (
+                        currentView === 'history'
+                          ? 'اختر وشاهد أي فيديو من الصفحة الرئيسية للبدء في تجميع سجل المشاهدة الخاص بك.'
+                          : currentView === 'watch-later'
+                          ? 'اضغط على أيقونة الساعة (🕒) على أي فيديو لحفظه لمشاهدته في وقت لاحق.'
+                          : currentView === 'liked'
+                          ? 'اضغط على زر الإعجاب (👍) أثناء مشاهدة أي فيديو ليظهر في هذه القائمة.'
+                          : currentView === 'uploads'
+                          ? 'اضغط على زر "رفع فيديو" 📤 في الشريط العلوي لنشر فيديوهاتك على المنصة.'
+                          : 'حاول إعادة تعيين كلمات البحث، أو اختيار تصنيف آخر، أو رفع ملف فيديو جديد.'
+                      ) : (
+                        currentView === 'history' 
+                          ? 'Select and play recommended videos on the home feed to build up your watch history.' 
+                          : currentView === 'watch-later'
+                          ? 'Click the clock icon overlay on any video card to save videos for later.'
+                          : currentView === 'liked'
+                          ? 'Click the like button (👍) on any video to add it to this list.'
+                          : currentView === 'uploads'
+                          ? 'Click the "Upload" button 📤 in the top bar to publish your own videos on the platform.'
+                          : 'Try resetting active search terms, choosing another category chip, or uploading a new file.'
+                      )}
                     </p>
                   </div>
                   {currentView !== 'home' && (
@@ -939,7 +1001,7 @@ export default function App() {
                       }}
                       className="bg-red-600 hover:bg-red-750 text-white text-xs font-bold px-4 py-2 rounded-full transition-colors active:scale-95 cursor-pointer"
                     >
-                      Return to Home Feed
+                      {settings.language === 'ar' ? 'العودة إلى الصفحة الرئيسية' : 'Return to Home Feed'}
                     </button>
                   )}
                 </div>
