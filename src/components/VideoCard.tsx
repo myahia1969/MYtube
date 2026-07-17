@@ -1,6 +1,6 @@
 import React from 'react';
 import { Video } from '../types';
-import { Play, X, Clock } from 'lucide-react';
+import { Play, X, Clock, Share2 } from 'lucide-react';
 
 interface VideoCardProps {
   key?: string;
@@ -12,6 +12,7 @@ interface VideoCardProps {
   isInWatchLater?: boolean;
   onToggleWatchLater?: () => void;
   onChannelClick?: (channelId: string) => void;
+  onShare?: (video: Video) => void;
 }
 
 export default function VideoCard({ 
@@ -22,7 +23,8 @@ export default function VideoCard({
   onRemove,
   isInWatchLater = false,
   onToggleWatchLater,
-  onChannelClick
+  onChannelClick,
+  onShare,
 }: VideoCardProps) {
   // Utility to format large numbers to scannable formats
   const formatViews = (viewsNum: number) => {
@@ -99,6 +101,31 @@ export default function VideoCard({
             <Clock className="w-3.5 h-3.5" />
           </button>
         )}
+
+        {/* Share Quick-Action Clipboard Copy Button */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            const shareUrl = `${window.location.origin}?v=${video.id}`;
+            navigator.clipboard.writeText(shareUrl).then(() => {
+              if (onShare) {
+                onShare(video);
+              } else {
+                alert('Copied link: ' + shareUrl);
+              }
+            });
+          }}
+          className={`absolute top-2.5 z-10 p-1.5 rounded-full transition-all shadow-md backdrop-blur-sm border bg-black/70 hover:bg-red-600 border-white/10 text-white group-hover:scale-105 active:scale-95 cursor-pointer ${
+            onRemove && onToggleWatchLater
+              ? 'right-[70px]'
+              : (onRemove || onToggleWatchLater)
+              ? 'right-10'
+              : 'right-2.5'
+          }`}
+          title="Share Video"
+        >
+          <Share2 className="w-3.5 h-3.5" />
+        </button>
 
         {/* Dynamic Watch Progress Bar overlay */}
         {progress !== undefined && progress > 0 && (

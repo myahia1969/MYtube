@@ -106,10 +106,25 @@ export default function AnalyticsDashboard({
         })
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || 'Server returned an error.');
+        let errorMsg = 'Server returned an error.';
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const errData = await response.json();
+            errorMsg = errData.error || errorMsg;
+          } else {
+            errorMsg = await response.text() || errorMsg;
+          }
+        } catch (e) {}
+        throw new Error(errorMsg);
+      }
+
+      let data;
+      try {
+        data = await response.json();
+      } catch (e) {
+        throw new Error('Invalid response from insights server.');
       }
 
       setInsights(data);

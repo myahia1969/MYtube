@@ -143,10 +143,25 @@ export default function AIVideoAnalyzer({ video }: AIVideoAnalyzerProps) {
         })
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || 'Chat server returned an error.');
+        let errorMsg = 'Chat server returned an error.';
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const errData = await response.json();
+            errorMsg = errData.error || errorMsg;
+          } else {
+            errorMsg = await response.text() || errorMsg;
+          }
+        } catch (e) {}
+        throw new Error(errorMsg);
+      }
+
+      let data;
+      try {
+        data = await response.json();
+      } catch (e) {
+        throw new Error('Invalid response from chat server.');
       }
 
       setChatMessages(prev => [...prev, { role: 'model', text: data.response }]);
@@ -175,10 +190,25 @@ export default function AIVideoAnalyzer({ video }: AIVideoAnalyzerProps) {
         })
       });
 
-      const data = await response.json();
-
       if (!response.ok) {
-        throw new Error(data.error || 'Server returned an error.');
+        let errorMsg = 'Server returned an error.';
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const errData = await response.json();
+            errorMsg = errData.error || errorMsg;
+          } else {
+            errorMsg = await response.text() || errorMsg;
+          }
+        } catch (e) {}
+        throw new Error(errorMsg);
+      }
+
+      let data;
+      try {
+        data = await response.json();
+      } catch (e) {
+        throw new Error('Invalid response from analysis server.');
       }
 
       setAnalysis(data);

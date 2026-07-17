@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ThumbsUp, ThumbsDown, Share2, CornerDownRight, MoreHorizontal, Send, Play, Clock } from 'lucide-react';
+import { ThumbsUp, ThumbsDown, Share2, CornerDownRight, MoreHorizontal, Send, Play, Clock, AlertCircle, ExternalLink } from 'lucide-react';
 import { Video, Comment, Channel, User } from '../types';
 import VideoPlayer from './VideoPlayer';
 import AIVideoAnalyzer from './AIVideoAnalyzer';
@@ -20,6 +20,7 @@ interface WatchPageProps {
   isInWatchLater?: boolean;
   onToggleWatchLater?: () => void;
   onChannelClick?: (channelId: string) => void;
+  language: string;
 }
 
 export default function WatchPage({
@@ -38,8 +39,36 @@ export default function WatchPage({
   isInWatchLater = false,
   onToggleWatchLater,
   onChannelClick,
+  language,
 }: WatchPageProps) {
   const [commentInput, setCommentInput] = useState('');
+
+  const getYoutubeId = (url: string): string | null => {
+    if (!url) return null;
+    const cleanedUrl = url.trim();
+    if (cleanedUrl.includes('/shorts/')) {
+      const parts = cleanedUrl.split('/shorts/');
+      if (parts[1]) {
+        const id = parts[1].split(/[?#&]/)[0];
+        if (id.length === 11) return id;
+      }
+    }
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    const match = cleanedUrl.match(regExp);
+    if (match && match[2].length === 11) {
+      return match[2];
+    }
+    try {
+      const parsed = new URL(cleanedUrl);
+      const v = parsed.searchParams.get('v');
+      if (v && v.length === 11) return v;
+    } catch (e) {}
+    if (cleanedUrl.length === 11) {
+      return cleanedUrl;
+    }
+    return null;
+  };
+  const youtubeId = getYoutubeId(video.videoUrl);
 
   // Filter out the current active video from recommended lists
   const recommendedVideos = allVideos.filter((v) => v.id !== video.id);
@@ -92,6 +121,36 @@ export default function WatchPage({
           onProgressUpdate={onProgressUpdate} 
           onVideoEnded={onVideoEnded}
         />
+
+        {/* YouTube Playback Error Helper Banner */}
+        {youtubeId && (
+          <div className="bg-amber-50 border border-amber-200 rounded-2xl p-4 shadow-sm flex flex-col sm:flex-row items-center justify-between gap-4 animate-fadeIn">
+            <div className="flex items-start gap-3">
+              <AlertCircle className="w-5 h-5 text-amber-600 shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <p className="font-sans font-bold text-amber-900 text-sm">
+                  {language === 'ar' 
+                    ? 'هل تواجه مشكلة في تشغيل الفيديو؟' 
+                    : 'Having trouble playing this video?'}
+                </p>
+                <p className="text-xs text-amber-700 font-sans leading-relaxed">
+                  {language === 'ar'
+                    ? 'بعض صناع المحتوى على يوتيوب يمنعون تشغيل مقاطعهم خارج موقع يوتيوب لحماية حقوق الملكية. في حال تعذر التشغيل، يمكنك مشاهدته مباشرة بكبسة زر.'
+                    : 'Some creators restrict their YouTube videos from being played on external websites. If this video doesn\'t load, you can watch it directly.'}
+                </p>
+              </div>
+            </div>
+            <a
+              href={`https://www.youtube.com/watch?v=${youtubeId}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all shadow-sm flex items-center gap-1.5 shrink-0 active:scale-95 whitespace-nowrap cursor-pointer hover:opacity-90"
+            >
+              <span>{language === 'ar' ? 'مشاهدة على يوتيوب ↗' : 'Watch on YouTube ↗'}</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </a>
+          </div>
+        )}
 
         {/* Video Metadata Panel */}
         <div className="space-y-3.5 bg-white p-4 rounded-2xl border border-gray-200">

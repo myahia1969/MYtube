@@ -14,6 +14,7 @@ import AuthModal from './components/AuthModal';
 import AnalyticsDashboard from './components/AnalyticsDashboard';
 import ShortcutsHelpModal from './components/ShortcutsHelpModal';
 import ChannelProfileView from './components/ChannelProfileView';
+import ShortsView from './components/ShortsView';
 import { Sparkles, Terminal, LogIn, LogOut, ArrowUp, Zap, HelpCircle, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -115,6 +116,93 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   const [activeChannelFilter, setActiveChannelFilter] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<Category>('All');
+
+  // Web search integration states
+  const [webSearchVideos, setWebSearchVideos] = useState<Video[]>([]);
+  const [isWebSearching, setIsWebSearching] = useState(false);
+  const [webSearchError, setWebSearchError] = useState<string | null>(null);
+  const [searchMode, setSearchMode] = useState<'local' | 'web'>('local');
+
+  // Automatically revert to local and clear search when query is cleared
+  useEffect(() => {
+    if (!searchQuery.trim()) {
+      setSearchMode('local');
+      setWebSearchVideos([]);
+      setWebSearchError(null);
+    }
+  }, [searchQuery]);
+
+  const handleWebSearch = async (queryToSearch: string) => {
+    const q = queryToSearch.trim();
+    if (!q) return;
+
+    setSearchQuery(q);
+    setSearchMode('web');
+    setIsWebSearching(true);
+    setWebSearchError(null);
+
+    // Switch to home view to display search results
+    if (currentView !== 'home') {
+      setView('home');
+    }
+    // Reset secondary filters to ensure the search results are not hidden by active channels or categories
+    setActiveChannelFilter(null);
+    setSelectedCategory('All');
+
+    try {
+      const response = await fetch('/api/ai/search-internet', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          query: q,
+          language: settings.language,
+        }),
+      });
+
+      if (!response.ok) {
+        let errorMsg = 'Failed to fetch live web search results.';
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const errData = await response.json();
+            errorMsg = errData.error || errorMsg;
+          } else {
+            errorMsg = await response.text() || errorMsg;
+          }
+        } catch (e) {}
+        throw new Error(errorMsg);
+      }
+
+      let data;
+      try {
+        data = await response.json();
+      } catch (e) {
+        throw new Error('Invalid response from search server.');
+      }
+
+      if (data.videos && Array.isArray(data.videos)) {
+        setWebSearchVideos(data.videos);
+
+        // Inject them into the main videos state so they can be played back, analyzed, and added to history
+        setVideos((prev) => {
+          const existingIds = new Set(prev.map((v) => v.id));
+          const newVideos = data.videos.filter((v: any) => !existingIds.has(v.id));
+          return [...prev, ...newVideos];
+        });
+      }
+    } catch (err: any) {
+      console.error(err);
+      setWebSearchError(err.message || 'An error occurred during real-time web search.');
+      triggerToast(
+        settings.language === 'ar' ? 'عذرًا، فشل البحث في الإنترنت الحقيقي' : 'Real-time Web Search failed.',
+        'error'
+      );
+    } finally {
+      setIsWebSearching(false);
+    }
+  };
   
   // Collapsible and responsive sidebar state variables
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -176,6 +264,46 @@ export default function App() {
   useEffect(() => {
     localStorage.setItem('metatube_watch_later', JSON.stringify(watchLater));
   }, [watchLater]);
+
+  // Toast notification state
+  const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
+
+  const triggerToast = (message: string, type: 'success' | 'info' | 'error' = 'success') => {
+    setToast({ message, type });
+  };
+
+  useEffect(() => {
+    if (toast) {
+      const timer = setTimeout(() => {
+        setToast(null);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [toast]);
+
+  // Deep linking: parse video URL query parameter on load
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const videoId = params.get('v') || params.get('video');
+    if (videoId && videos.length > 0) {
+      const matched = videos.find(v => v.id === videoId);
+      if (matched) {
+        // Delay slightly to ensure standard initialization has finished
+        const timer = setTimeout(() => {
+          handleVideoSelect(matched);
+        }, 150);
+        return () => clearTimeout(timer);
+      }
+    }
+  }, [videos]);
+
+  const handleShare = (video: Video) => {
+    const isArabic = settings.language === 'ar';
+    const msg = isArabic 
+      ? `تم نسخ رابط فيديو "${video.title}" إلى الحافظة بنجاح!` 
+      : `Link to "${video.title}" copied to clipboard successfully!`;
+    triggerToast(msg, 'success');
+  };
 
   // Auth simulators
   const handleLogin = () => {
@@ -363,6 +491,10 @@ export default function App() {
 
   // Master Filter Formula for the Video Feed
   const getDisplayVideos = () => {
+    if (searchQuery.trim() && searchMode === 'web' && currentView === 'home' && !activeChannelFilter) {
+      return webSearchVideos;
+    }
+
     if (currentView === 'history') {
       const historyVideos = history
         .map(item => videos.find(v => v.id === item.videoId))
@@ -400,7 +532,12 @@ export default function App() {
     }
 
     return videos.filter(video => {
-      // 1. Sidebar views segregation
+      // 1. Exclude shorts from regular horizontal grids to preserve layout aesthetics
+      if (currentView !== 'shorts' && (video.category === 'Shorts' || (video as any).isShort)) {
+        return false;
+      }
+
+      // 2. Sidebar views segregation
       if (currentView === 'uploads') {
         return video.channelId === 'chan-current-mock';
       }
@@ -484,6 +621,7 @@ export default function App() {
           setShowAuthModal(true);
         }}
         language={settings.language}
+        onWebSearchClick={handleWebSearch}
       />
 
       {/* Main Panel Wrapper */}
@@ -508,6 +646,19 @@ export default function App() {
           {currentView === 'dev-console' ? (
             /* Developer SQL and Architecture console panel */
             <DevConsole />
+          ) : currentView === 'shorts' ? (
+            /* Immersive vertical Shorts Video player */
+            <ShortsView
+              videos={videos}
+              channels={channels}
+              comments={comments}
+              currentUser={currentUser}
+              onToggleLike={(id) => handleLikeToggle(id, 'like')}
+              onToggleDislike={(id) => handleLikeToggle(id, 'dislike')}
+              onAddComment={handleAddComment}
+              onToggleSubscribe={handleSubscribeToggle}
+              language={settings.language}
+            />
           ) : currentView === 'analytics' ? (
             /* Advanced AI Analytics and Viewer Habits Portal */
             <AnalyticsDashboard
@@ -529,6 +680,7 @@ export default function App() {
                 setView('home');
                 setActiveChannelFilter(null);
               }}
+              onShare={handleShare}
             />
           ) : currentView === 'watch' && activeVideo ? (
             /* Immersive Custom Video Playback Page */
@@ -551,6 +703,7 @@ export default function App() {
                 setActiveChannelFilter(chanId);
                 setView('channel');
               }}
+              language={settings.language}
             />
           ) : (
             /* Grid Feeds (Home, Liked, Uploads, Subscribed channels) */
@@ -562,7 +715,10 @@ export default function App() {
                   {(['All', 'Coding', 'Tech', 'Design', 'Nature', 'Music', 'Gaming'] as Category[]).map((cat) => (
                     <button
                       key={cat}
-                      onClick={() => setSelectedCategory(cat)}
+                      onClick={() => {
+                        setSelectedCategory(cat);
+                        setSearchMode('local');
+                      }}
                       className={`px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all duration-200 cursor-pointer ${
                         selectedCategory === cat
                           ? 'bg-[#0f0f0f] text-white shadow-sm'
@@ -575,27 +731,128 @@ export default function App() {
                 </div>
               )}
 
+              {/* Real-time Internet Web Search Selector Overlay */}
+              {searchQuery.trim() && currentView === 'home' && !activeChannelFilter && (
+                <div className="bg-white border border-gray-200 rounded-2xl p-4 shadow-sm flex flex-col md:flex-row items-center justify-between gap-4 animate-fadeIn">
+                  <div className="space-y-1 text-center md:text-left">
+                    <p className="font-sans font-bold text-gray-900 text-sm md:text-base flex items-center justify-center md:justify-start gap-1.5">
+                      <Sparkles className="w-4 h-4 text-yellow-500 animate-pulse" />
+                      {settings.language === 'ar' 
+                        ? `نتائج البحث عن: "${searchQuery}"` 
+                        : `Search results for: "${searchQuery}"`}
+                    </p>
+                    <p className="text-xs text-gray-500 font-sans max-w-xl">
+                      {settings.language === 'ar'
+                        ? 'اختر وضع البحث للتبديل بين الفيديوهات المحلية الافتراضية وجلب فيديوهات حقيقية ومحدثة مباشرة من شبكة الإنترنت بالذكاء الاصطناعي.'
+                        : 'Choose search mode to toggle between standard local videos and fetching brand new live videos from the web using AI.'}
+                    </p>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 bg-gray-100 p-1 rounded-xl w-full md:w-auto shrink-0 justify-center">
+                    <button
+                      onClick={() => setSearchMode('local')}
+                      className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-xs font-bold transition-all duration-200 cursor-pointer ${
+                        searchMode === 'local'
+                          ? 'bg-white text-gray-900 shadow-sm border border-gray-200/50'
+                          : 'text-gray-500 hover:text-gray-900'
+                      }`}
+                    >
+                      {settings.language === 'ar' ? '🏠 فيديوهات المنصة' : '🏠 Platform Videos'}
+                    </button>
+                    <button
+                      onClick={() => handleWebSearch(searchQuery)}
+                      disabled={isWebSearching}
+                      className={`flex-1 md:flex-none px-4 py-2 rounded-lg text-xs font-bold transition-all duration-200 flex items-center justify-center gap-1.5 cursor-pointer ${
+                        searchMode === 'web'
+                          ? 'bg-[#0f0f0f] text-white shadow-sm'
+                          : 'text-gray-500 hover:text-gray-900 hover:bg-gray-200/50'
+                      }`}
+                    >
+                      <Sparkles className="w-3.5 h-3.5 text-yellow-400" />
+                      {isWebSearching 
+                        ? (settings.language === 'ar' ? 'جاري البحث...' : 'Searching...')
+                        : (settings.language === 'ar' ? '🌐 ويب حقيقي (AI)' : '🌐 Real Web (AI)')}
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Web Search Loading State */}
+              {isWebSearching && (
+                <div className="py-16 flex flex-col items-center justify-center text-center space-y-4 bg-white border border-gray-100 rounded-3xl shadow-sm animate-pulse">
+                  <div className="relative flex items-center justify-center">
+                    <div className="animate-spin rounded-full h-12 w-12 border-4 border-red-100 border-t-red-600"></div>
+                    <Sparkles className="absolute w-5 h-5 text-yellow-500 animate-pulse" />
+                  </div>
+                  <div className="space-y-1.5 px-4">
+                    <p className="font-sans font-bold text-gray-800 text-sm md:text-base">
+                      {settings.language === 'ar' 
+                        ? 'جاري الاستعلام والاتصال بمحركات البحث...' 
+                        : 'Querying search engines & fetching real videos...'}
+                    </p>
+                    <p className="text-xs text-gray-500 font-sans max-w-md mx-auto leading-relaxed">
+                      {settings.language === 'ar'
+                        ? 'يقوم مساعد Gemini الذكي الآن بالبحث في شبكة الويب المفتوحة للعثور على فيديوهات حقيقية، وتحليل محتواها وتجهيز الروابط والبيانات بدقة.'
+                        : 'Gemini is searching the live web for actual videos, translating details, and formatting streaming links.'}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Web Search Error State */}
+              {webSearchError && !isWebSearching && (
+                <div className="py-12 flex flex-col items-center justify-center text-center space-y-4 bg-red-50 border border-red-200 rounded-3xl">
+                  <div className="p-3 bg-red-100 rounded-full text-red-600">
+                    <HelpCircle className="w-6 h-6 text-red-500" />
+                  </div>
+                  <div className="space-y-1 px-4">
+                    <p className="font-sans font-bold text-red-950">
+                      {settings.language === 'ar' ? 'عذرًا، حدث خطأ أثناء البحث في الإنترنت' : 'Error searching the web'}
+                    </p>
+                    <p className="text-xs text-red-700 font-sans max-w-md mx-auto">
+                      {webSearchError}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => handleWebSearch(searchQuery)}
+                    className="bg-red-600 hover:bg-red-750 text-white text-xs font-bold px-5 py-2 rounded-full transition-colors active:scale-95 cursor-pointer"
+                  >
+                    {settings.language === 'ar' ? 'إعادة المحاولة 🔄' : 'Retry Web Search 🔄'}
+                  </button>
+                </div>
+              )}
+
               {/* Feed Header */}
               <div className="flex flex-wrap items-center justify-between gap-4 border-b border-gray-200 pb-4">
                 <div className="space-y-1">
                   <h2 className="font-sans font-bold text-lg md:text-xl text-gray-900 tracking-tight capitalize flex items-center gap-2">
                     {currentView === 'home' && activeChannelFilter && (
                       <span className="text-gray-500">
-                        Videos from <span className="text-red-600 font-semibold">{channels.find(c => c.id === activeChannelFilter)?.name}</span>
+                        {settings.language === 'ar' ? 'قناة ' : 'Videos from '}<span className="text-red-600 font-semibold">{channels.find(c => c.id === activeChannelFilter)?.name}</span>
                       </span>
                     )}
-                    {currentView === 'home' && !activeChannelFilter && 'Recommended Videos'}
-                    {currentView === 'uploads' && 'My Uploaded Videos'}
-                    {currentView === 'liked' && 'My Liked Feed'}
-                    {currentView === 'history' && 'Watch History'}
-                    {currentView === 'watch-later' && 'Watch Later List'}
+                    {currentView === 'home' && !activeChannelFilter && (
+                      searchMode === 'web'
+                        ? (settings.language === 'ar' ? 'نتائج الويب الحقيقية' : 'Real Web Results')
+                        : (searchQuery.trim() 
+                          ? (settings.language === 'ar' ? 'نتائج البحث المحلية' : 'Local Search Results')
+                          : (settings.language === 'ar' ? 'الفيديوهات المقترحة' : 'Recommended Videos'))
+                    )}
+                    {currentView === 'uploads' && (settings.language === 'ar' ? 'مرفوعاتي الشخصية' : 'My Uploaded Videos')}
+                    {currentView === 'liked' && (settings.language === 'ar' ? 'الفيديوهات المفضلة' : 'My Liked Feed')}
+                    {currentView === 'history' && (settings.language === 'ar' ? 'سجل المشاهدة' : 'Watch History')}
+                    {currentView === 'watch-later' && (settings.language === 'ar' ? 'المشاهدة لاحقًا' : 'Watch Later List')}
                   </h2>
                   <p className="text-xs text-gray-500 font-sans">
-                    {currentView === 'home' && 'Explore streaming media from modern creators.'}
-                    {currentView === 'uploads' && 'Videos you published to Metatube during this session.'}
-                    {currentView === 'liked' && 'Your curated list of videos that inspired you.'}
-                    {currentView === 'history' && 'Revisit and manage videos you watched previously.'}
-                    {currentView === 'watch-later' && 'Saved videos to watch at your convenience.'}
+                    {currentView === 'home' && !activeChannelFilter && (
+                      searchMode === 'web'
+                        ? (settings.language === 'ar' ? 'نتائج حية ومحدثة من الإنترنت تمت تصفيتها وتجهيزها بالكامل بواسطة الذكاء الاصطناعي.' : 'Live streaming content sourced from the open web, verified by Gemini AI.')
+                        : (settings.language === 'ar' ? 'استكشف محتوى ترفيهي وتعليمي مميز من صناع المحتوى المفضلين لديك.' : 'Explore streaming media from modern creators.')
+                    )}
+                    {currentView === 'uploads' && (settings.language === 'ar' ? 'الفيديوهات التي قمت بنشرها وتخزينها خلال هذه الجلسة.' : 'Videos you published to MYtube during this session.')}
+                    {currentView === 'liked' && (settings.language === 'ar' ? 'مجموعتك المنسقة والملهمة من مقاطع الفيديو التي نالت إعجابك.' : 'Your curated list of videos that inspired you.')}
+                    {currentView === 'history' && (settings.language === 'ar' ? 'أعد مشاهدة وإدارة مقاطع الفيديو التي قمت بمتابعتها مسبقًا.' : 'Revisit and manage videos you watched previously.')}
+                    {currentView === 'watch-later' && (settings.language === 'ar' ? 'مقاطع الفيديو التي قمت بحفظها لتستمتع بمشاهدتها في وقت لاحق.' : 'Saved videos to watch at your convenience.')}
                   </p>
                 </div>
 
@@ -809,6 +1066,7 @@ export default function App() {
                                     setActiveChannelFilter(chanId);
                                     setView('channel');
                                   }}
+                                  onShare={handleShare}
                                 />
                               );
                             })}
@@ -842,6 +1100,7 @@ export default function App() {
                           setActiveChannelFilter(chanId);
                           setView('channel');
                         }}
+                        onShare={handleShare}
                       />
                     );
                   })}
@@ -891,6 +1150,29 @@ export default function App() {
           language={settings.language}
         />
       )}
+
+      {/* 8. Dynamic Floating Toast Notification */}
+      <AnimatePresence>
+        {toast && (
+          <motion.div
+            initial={{ opacity: 0, y: 50, scale: 0.9 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: 20, scale: 0.9 }}
+            className={`fixed bottom-6 z-50 flex items-center gap-2.5 px-4.5 py-3.5 rounded-2xl shadow-xl border text-xs font-bold ${
+              settings.language === 'ar' ? 'left-6 flex-row-reverse' : 'right-6'
+            } ${
+              toast.type === 'success'
+                ? 'bg-emerald-50 border-emerald-200 text-emerald-950'
+                : toast.type === 'error'
+                ? 'bg-rose-50 border-rose-200 text-rose-950'
+                : 'bg-indigo-50 border-indigo-200 text-indigo-950'
+            }`}
+          >
+            <Sparkles className="w-4 h-4 shrink-0 text-emerald-600 animate-spin-slow" />
+            <span>{toast.message}</span>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

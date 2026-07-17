@@ -1,6 +1,6 @@
 {
   "name": "MYtube",
-  "description": "A production-grade video streaming platform with subscriptions, comments, uploads, and fully featured custom video controller shortcuts and progress tracking.",
-  "requestFramePermissions": [],
+  "description": "A production-grade video streaming platform with vertical Shorts, subscriptions, comments, uploads, and fully featured custom video controller shortcuts and progress tracking.",
+  "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
 }

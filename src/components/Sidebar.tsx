@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Tv, Heart, Upload, Database, Users, HelpCircle, History, Clock, BarChart3, Keyboard } from 'lucide-react';
+import { Home, Tv, Heart, Upload, Database, Users, HelpCircle, History, Clock, BarChart3, Keyboard, Zap } from 'lucide-react';
 import { Channel } from '../types';
 
 interface SidebarProps {
@@ -68,6 +68,22 @@ export default function Sidebar({
             <Home className={`${collapsed ? 'w-5 h-5' : 'w-4 h-4'} text-red-600 shrink-0`} />
             <span className={collapsed ? 'text-[9px] scale-95 leading-tight font-medium' : 'truncate'}>
               {collapsed ? 'Home' : 'Home Feed'}
+            </span>
+          </button>
+
+          <button
+            id="nav-shorts"
+            onClick={() => {
+              setView('shorts');
+              onChannelFilter(null);
+              onCloseMobile();
+            }}
+            className={buttonClass(currentView === 'shorts')}
+            title={language === 'ar' ? 'فيديوهات قصيرة' : 'Shorts Videos'}
+          >
+            <Zap className={`${collapsed ? 'w-5 h-5' : 'w-4 h-4'} text-amber-500 shrink-0`} />
+            <span className={collapsed ? 'text-[9px] scale-95 leading-tight font-medium' : 'truncate'}>
+              {collapsed ? (language === 'ar' ? 'شورتس' : 'Shorts') : (language === 'ar' ? 'فيديوهات قصيرة' : 'Shorts Videos')}
             </span>
           </button>
 

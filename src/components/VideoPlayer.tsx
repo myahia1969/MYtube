@@ -185,6 +185,60 @@ export default function VideoPlayer({ videoUrl, thumbnailUrl, onProgressUpdate, 
     return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const getYoutubeId = (url: string): string | null => {
+    if (!url) return null;
+    const cleanedUrl = url.trim();
+    
+    // 1. Check for Shorts format
+    if (cleanedUrl.includes('/shorts/')) {
+      const parts = cleanedUrl.split('/shorts/');
+      if (parts[1]) {
+        const id = parts[1].split(/[?#&]/)[0];
+        if (id.length === 11) return id;
+      }
+    }
+    
+    // 2. Check for standard YouTube URL regex matching watch?v=, embed/, etc.
+    const regExp = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    const match = cleanedUrl.match(regExp);
+    if (match && match[2].length === 11) {
+      return match[2];
+    }
+    
+    // 3. Check for URL parameters directly
+    try {
+      const parsed = new URL(cleanedUrl);
+      const v = parsed.searchParams.get('v');
+      if (v && v.length === 11) return v;
+    } catch (e) {
+      // Ignore URL parse errors for relative or incomplete paths
+    }
+    
+    // 4. Fallback if the url itself is just the 11 character ID
+    if (cleanedUrl.length === 11) {
+      return cleanedUrl;
+    }
+    
+    return null;
+  };
+  const youtubeId = getYoutubeId(videoUrl);
+
+  if (youtubeId) {
+    return (
+      <div className="relative w-full aspect-video bg-black rounded-2xl overflow-hidden shadow-2xl border border-zinc-900">
+        <iframe
+          src={`https://www.youtube-nocookie.com/embed/${youtubeId}?autoplay=1&rel=0&modestbranding=1&enablejsapi=1`}
+          title="Video Player"
+          frameBorder="0"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          sandbox="allow-scripts allow-same-origin allow-presentation allow-popups allow-popups-to-escape-sandbox allow-forms"
+          allowFullScreen
+          className="w-full h-full"
+        />
+      </div>
+    );
+  }
+
   return (
     <div
       ref={containerRef}

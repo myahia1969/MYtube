@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
-import { Search, Upload, Bell, Menu, Sparkles, User, Database, Settings } from 'lucide-react';
+import { Search, Upload, Bell, Menu, Sparkles, User, Database, Settings, Mic, Keyboard } from 'lucide-react';
 import { User as UserType } from '../types';
+import VirtualKeyboard from './VirtualKeyboard';
 
 interface NavbarProps {
   currentUser: UserType | null;
@@ -16,6 +17,7 @@ interface NavbarProps {
   onSettingsClick?: () => void;
   onEditProfileClick?: () => void;
   language?: 'en' | 'ar';
+  onWebSearchClick?: (query: string) => void;
 }
 
 export default function Navbar({
@@ -32,8 +34,57 @@ export default function Navbar({
   onSettingsClick,
   onEditProfileClick,
   language = 'en',
+  onWebSearchClick,
 }: NavbarProps) {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showKeyboard, setShowKeyboard] = useState(false);
+  const [isListening, setIsListening] = useState(false);
+
+  const handleVoiceSearch = () => {
+    const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+    if (!SpeechRecognition) {
+      alert(language === 'ar' ? 'البحث الصوتي غير مدعوم في متصفحك.' : 'Voice search is not supported in this browser.');
+      return;
+    }
+
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.lang = language === 'ar' ? 'ar-EG' : 'en-US';
+    recognition.interimResults = false;
+
+    recognition.onstart = () => {
+      setIsListening(true);
+    };
+
+    recognition.onerror = (event: any) => {
+      console.error('Speech recognition error', event);
+      setIsListening(false);
+      
+      if (event.error === 'not-allowed') {
+        alert(language === 'ar'
+          ? 'تم رفض إذن الميكروفون أو تم حظره بواسطة المتصفح داخل الإطار (iframe).\n\n💡 الحل: يرجى الضغط على زر "فتح التطبيق في علامة تبويب جديدة" (مربع مع سهم للأعلى) في الشريط العلوي لتشغيل البحث الصوتي بكل حرية!'
+          : 'Microphone permission denied or blocked inside the frame (iframe).\n\n💡 Tip: Please click the "Open in new tab" button in the top bar to run Voice Search with full microphone permissions!');
+      } else {
+        alert(language === 'ar'
+          ? `عذرًا، حدث خطأ أثناء التعرف على الصوت: ${event.error}`
+          : `Speech recognition error: ${event.error}`);
+      }
+    };
+
+    recognition.onend = () => {
+      setIsListening(false);
+    };
+
+    recognition.onresult = (event: any) => {
+      const transcript = event.results[0][0].transcript;
+      setSearchQuery(transcript);
+      if (onWebSearchClick) {
+        onWebSearchClick(transcript);
+      }
+    };
+
+    recognition.start();
+  };
 
   return (
     <header className="sticky top-0 z-40 flex items-center justify-between bg-white px-4 py-3 border-b border-gray-200 text-[#0f0f0f]">
@@ -64,13 +115,13 @@ export default function Navbar({
           <span className="font-sans font-bold tracking-tighter text-xl text-[#0f0f0f]">
             MYtube
             <span className="text-[10px] text-red-600 ml-1 bg-red-50 px-1.5 py-0.5 rounded font-mono border border-red-200">
-              CLONE
+              PREMIUM
             </span>
           </span>
         </div>
       </div>
 
-      {/* Middle: Search bar with instant filters */}
+      {/* Middle: Search bar with instant filters, voice search, and virtual keyboard */}
       <div className="flex-1 max-w-xl mx-4 relative hidden sm:block">
         <div className="relative flex items-center w-full">
           <input
@@ -78,11 +129,66 @@ export default function Navbar({
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Search creators, categories, videos..."
-            className="w-full bg-gray-50 border border-gray-300 focus:border-red-600 text-gray-900 pl-4 pr-10 py-2 rounded-full text-sm outline-none transition-all placeholder-gray-400 shadow-inner"
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && searchQuery.trim()) {
+                onWebSearchClick?.(searchQuery);
+              }
+            }}
+            placeholder={language === 'ar' ? "ابحث عن صناع المحتوى، الفئات، الفيديوهات..." : "Search creators, categories, videos..."}
+            className={`w-full bg-gray-50 border border-gray-300 focus:border-red-600 text-gray-900 py-2 rounded-full text-sm outline-none transition-all placeholder-gray-400 shadow-inner ${
+              language === 'ar' ? 'pr-4 pl-28' : 'pl-4 pr-28'
+            }`}
           />
-          <Search className="absolute right-3.5 w-4 h-4 text-gray-400 pointer-events-none" />
+          <div className={`absolute flex items-center gap-2.5 ${language === 'ar' ? 'left-3' : 'right-3'}`}>
+            {/* Keyboard Button */}
+            <button
+              onClick={() => setShowKeyboard(!showKeyboard)}
+              className={`p-1.5 hover:bg-gray-150 rounded-full transition-all cursor-pointer ${
+                showKeyboard ? 'text-red-600 bg-red-50' : 'text-gray-400 hover:text-[#0f0f0f]'
+              }`}
+              title={language === 'ar' ? 'لوحة المفاتيح الافتراضية' : 'Virtual Keyboard'}
+            >
+              <Keyboard className="w-4 h-4" />
+            </button>
+
+            {/* Voice Search Mic Button */}
+            <button
+              onClick={handleVoiceSearch}
+              className={`p-1.5 hover:bg-gray-150 rounded-full transition-all cursor-pointer ${
+                isListening 
+                  ? 'text-white bg-red-600 animate-pulse' 
+                  : 'text-gray-400 hover:text-[#0f0f0f]'
+              }`}
+              title={language === 'ar' ? 'البحث بالصوت' : 'Voice Search'}
+            >
+              <Mic className="w-4 h-4" />
+            </button>
+
+            <button
+              onClick={() => {
+                if (searchQuery.trim()) {
+                  onWebSearchClick?.(searchQuery);
+                }
+              }}
+              className="p-1.5 hover:bg-gray-150 rounded-full text-red-600 hover:text-red-700 transition-colors cursor-pointer shrink-0"
+              title={language === 'ar' ? 'البحث في الإنترنت' : 'Search Live Web'}
+            >
+              <Search className="w-4 h-4" />
+            </button>
+          </div>
         </div>
+
+        {/* Floating Virtual Keyboard Drawer */}
+        {showKeyboard && (
+          <div className="absolute top-full left-0 right-0 mt-2.5 z-50">
+            <VirtualKeyboard
+              value={searchQuery}
+              onChange={(val) => setSearchQuery(val)}
+              language={language}
+              onClose={() => setShowKeyboard(false)}
+            />
+          </div>
+        )}
       </div>
 
       {/* Right side: Actions, notifications, and profiles */}

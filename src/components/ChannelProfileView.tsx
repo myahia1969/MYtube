@@ -15,6 +15,7 @@ interface ChannelProfileViewProps {
   onSubscribeToggle: (channelId: string) => void;
   onVideoClick: (video: Video) => void;
   onBackToHome: () => void;
+  onShare?: (video: Video) => void;
 }
 
 interface AIChannelInsights {
@@ -32,6 +33,7 @@ export default function ChannelProfileView({
   onSubscribeToggle,
   onVideoClick,
   onBackToHome,
+  onShare,
 }: ChannelProfileViewProps) {
   const isArabic = language === 'ar';
   
@@ -83,10 +85,27 @@ export default function ChannelProfileView({
         })
       });
 
-      const data = await response.json();
       if (!response.ok) {
-        throw new Error(data.error || 'Server error generating insights.');
+        let errorMsg = 'Server error generating insights.';
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            const errData = await response.json();
+            errorMsg = errData.error || errorMsg;
+          } else {
+            errorMsg = await response.text() || errorMsg;
+          }
+        } catch (e) {}
+        throw new Error(errorMsg);
       }
+
+      let data;
+      try {
+        data = await response.json();
+      } catch (e) {
+        throw new Error('Invalid response from insights server.');
+      }
+
       setInsights(data);
     } catch (err: any) {
       console.error(err);
@@ -248,6 +267,7 @@ export default function ChannelProfileView({
                     key={video.id}
                     video={video}
                     onClick={() => onVideoClick(video)}
+                    onShare={onShare}
                   />
                 ))}
               </div>
