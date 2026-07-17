@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { ThumbsUp, ThumbsDown, Share2, CornerDownRight, MoreHorizontal, Send, Play, Clock } from 'lucide-react';
 import { Video, Comment, Channel, User } from '../types';
 import VideoPlayer from './VideoPlayer';
+import AIVideoAnalyzer from './AIVideoAnalyzer';
 
 interface WatchPageProps {
   video: Video;
@@ -18,6 +19,7 @@ interface WatchPageProps {
   onVideoEnded?: () => void;
   isInWatchLater?: boolean;
   onToggleWatchLater?: () => void;
+  onChannelClick?: (channelId: string) => void;
 }
 
 export default function WatchPage({
@@ -35,6 +37,7 @@ export default function WatchPage({
   onVideoEnded,
   isInWatchLater = false,
   onToggleWatchLater,
+  onChannelClick,
 }: WatchPageProps) {
   const [commentInput, setCommentInput] = useState('');
 
@@ -169,12 +172,18 @@ export default function WatchPage({
             <img
               src={video.channelAvatar}
               alt={video.channelName}
-              className="w-11 h-11 rounded-full object-cover border border-gray-200 shrink-0"
+              onClick={() => onChannelClick && onChannelClick(video.channelId)}
+              className="w-11 h-11 rounded-full object-cover border border-gray-200 shrink-0 cursor-pointer hover:opacity-85 transition-opacity"
             />
             <div className="space-y-3 flex-1 min-w-0">
               <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h3 className="font-sans font-bold text-sm text-gray-900">{video.channelName}</h3>
+                <div 
+                  onClick={() => onChannelClick && onChannelClick(video.channelId)}
+                  className="cursor-pointer group"
+                >
+                  <h3 className="font-sans font-bold text-sm text-gray-900 group-hover:text-red-600 transition-colors flex items-center gap-1">
+                    <span>{video.channelName}</span>
+                  </h3>
                   <p className="text-[11px] text-gray-400 font-mono mt-0.5">{formatSubscribers(activeSubsCount)}</p>
                 </div>
                 
@@ -198,6 +207,9 @@ export default function WatchPage({
             </div>
           </div>
         </div>
+
+        {/* AI Video Assistant & Analyzer */}
+        <AIVideoAnalyzer video={video} />
 
         {/* Comments Section */}
         <div className="bg-white p-5 rounded-2xl border border-gray-200 space-y-5">

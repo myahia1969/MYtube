@@ -14,6 +14,8 @@ interface NavbarProps {
   onLogoutClick: () => void;
   onMenuClick?: () => void;
   onSettingsClick?: () => void;
+  onEditProfileClick?: () => void;
+  language?: 'en' | 'ar';
 }
 
 export default function Navbar({
@@ -28,6 +30,8 @@ export default function Navbar({
   onLogoutClick,
   onMenuClick,
   onSettingsClick,
+  onEditProfileClick,
+  language = 'en',
 }: NavbarProps) {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
 
@@ -161,6 +165,17 @@ export default function Navbar({
                   >
                     <Database className="w-4 h-4 text-red-500" />
                     Supabase Blueprint
+                  </button>
+
+                  <button
+                    onClick={() => {
+                      onEditProfileClick?.();
+                      setShowProfileMenu(false);
+                    }}
+                    className="w-full text-left px-4 py-2 text-sm text-gray-700 hover:bg-gray-50 hover:text-black transition-colors flex items-center gap-2 border-t border-gray-100"
+                  >
+                    <User className="w-4 h-4 text-indigo-500" />
+                    {language === 'ar' ? 'تعديل الملف الشخصي' : 'Edit Profile / Avatar'}
                   </button>
 
                   <button

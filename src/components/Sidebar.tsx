@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Tv, Heart, Upload, Database, Users, HelpCircle, History, Clock } from 'lucide-react';
+import { Home, Tv, Heart, Upload, Database, Users, HelpCircle, History, Clock, BarChart3, Keyboard } from 'lucide-react';
 import { Channel } from '../types';
 
 interface SidebarProps {
@@ -11,6 +11,8 @@ interface SidebarProps {
   collapsed: boolean;
   mobileOpen: boolean;
   onCloseMobile: () => void;
+  language?: 'en' | 'ar';
+  onHelpShortcutsClick?: () => void;
 }
 
 export default function Sidebar({
@@ -22,6 +24,8 @@ export default function Sidebar({
   collapsed,
   mobileOpen,
   onCloseMobile,
+  language = 'en',
+  onHelpShortcutsClick,
 }: SidebarProps) {
   
   // Custom button layout and text styling based on collapse state
@@ -132,6 +136,22 @@ export default function Sidebar({
           </button>
 
           <button
+            id="nav-analytics"
+            onClick={() => {
+              setView('analytics');
+              onChannelFilter(null);
+              onCloseMobile();
+            }}
+            className={buttonClass(currentView === 'analytics')}
+            title="Insights & Analytics"
+          >
+            <BarChart3 className={`${collapsed ? 'w-5 h-5' : 'w-4 h-4'} text-violet-500 shrink-0`} />
+            <span className={collapsed ? 'text-[9px] scale-95 leading-tight font-medium' : 'truncate'}>
+              {collapsed ? (language === 'ar' ? 'تحليل' : 'Insights') : (language === 'ar' ? 'لوحة الإحصائيات' : 'AI Analytics')}
+            </span>
+          </button>
+
+          <button
             id="nav-dev"
             onClick={() => {
               setView('dev-console');
@@ -216,7 +236,22 @@ export default function Sidebar({
       </div>
 
       {/* Footer system details */}
-      <div className="pt-4 border-t border-gray-150">
+      <div className="pt-4 border-t border-gray-150 space-y-2">
+        {onHelpShortcutsClick && (
+          <button
+            onClick={onHelpShortcutsClick}
+            className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-xl text-xs font-bold text-indigo-600 bg-indigo-50/75 hover:bg-indigo-100/80 border border-indigo-100/80 transition-all cursor-pointer active:scale-95 ${
+              collapsed ? 'justify-center p-2' : 'justify-start'
+            }`}
+            title={language === 'ar' ? 'مفاتيح الاختصار للمشغل' : 'Player Keyboard Shortcuts'}
+          >
+            <Keyboard className="w-4 h-4 shrink-0" />
+            {!collapsed && (
+              <span className="truncate">{language === 'ar' ? 'مفاتيح الاختصار' : 'Keyboard Shortcuts'}</span>
+            )}
+          </button>
+        )}
+
         {collapsed ? (
           <div className="text-center font-mono text-[9px] text-gray-400 font-semibold">
             MYT

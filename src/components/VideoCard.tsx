@@ -11,6 +11,7 @@ interface VideoCardProps {
   onRemove?: () => void;
   isInWatchLater?: boolean;
   onToggleWatchLater?: () => void;
+  onChannelClick?: (channelId: string) => void;
 }
 
 export default function VideoCard({ 
@@ -20,7 +21,8 @@ export default function VideoCard({
   progress, 
   onRemove,
   isInWatchLater = false,
-  onToggleWatchLater
+  onToggleWatchLater,
+  onChannelClick
 }: VideoCardProps) {
   // Utility to format large numbers to scannable formats
   const formatViews = (viewsNum: number) => {
@@ -115,7 +117,15 @@ export default function VideoCard({
         <img
           src={video.channelAvatar}
           alt={video.channelName}
-          className="w-9 h-9 rounded-full object-cover border border-gray-200 shrink-0 group-hover:border-gray-400 transition-colors"
+          onClick={(e) => {
+            if (onChannelClick) {
+              e.stopPropagation();
+              onChannelClick(video.channelId);
+            }
+          }}
+          className={`w-9 h-9 rounded-full object-cover border border-gray-200 shrink-0 group-hover:border-gray-400 transition-colors ${
+            onChannelClick ? 'cursor-pointer hover:scale-105 active:scale-95' : ''
+          }`}
         />
 
         {/* Video metadata */}
@@ -125,7 +135,17 @@ export default function VideoCard({
           </h4>
           
           <div className="flex flex-col mt-0.5">
-            <span className="text-xs text-gray-500 hover:text-black transition-colors truncate">
+            <span 
+              onClick={(e) => {
+                if (onChannelClick) {
+                  e.stopPropagation();
+                  onChannelClick(video.channelId);
+                }
+              }}
+              className={`text-xs text-gray-500 hover:text-red-600 hover:underline transition-colors truncate ${
+                onChannelClick ? 'cursor-pointer font-semibold' : ''
+              }`}
+            >
               {video.channelName}
             </span>
             

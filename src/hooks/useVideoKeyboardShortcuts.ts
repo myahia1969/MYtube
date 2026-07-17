@@ -40,6 +40,7 @@ export function useVideoKeyboardShortcuts({
 
       switch (e.code) {
         case 'Space':
+        case 'KeyK':
           e.preventDefault();
           onTogglePlay();
           break;
@@ -52,12 +53,14 @@ export function useVideoKeyboardShortcuts({
           onToggleFullscreen();
           break;
         case 'ArrowRight':
+        case 'KeyL':
           if (onSeekForward) {
             e.preventDefault();
             onSeekForward();
           }
           break;
         case 'ArrowLeft':
+        case 'KeyJ':
           if (onSeekBackward) {
             e.preventDefault();
             onSeekBackward();

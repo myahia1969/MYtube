@@ -10,6 +10,10 @@ import WatchPage from './components/WatchPage';
 import UploadModal from './components/UploadModal';
 import DevConsole from './components/DevConsole';
 import SettingsModal, { AppSettings } from './components/SettingsModal';
+import AuthModal from './components/AuthModal';
+import AnalyticsDashboard from './components/AnalyticsDashboard';
+import ShortcutsHelpModal from './components/ShortcutsHelpModal';
+import ChannelProfileView from './components/ChannelProfileView';
 import { Sparkles, Terminal, LogIn, LogOut, ArrowUp, Zap, HelpCircle, Clock } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -68,8 +72,13 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState<User | null>(() => {
     const saved = localStorage.getItem('metatube_user');
     if (saved) {
-      const parsed = JSON.parse(saved);
-      return parsed.loggedOut ? null : CURRENT_USER;
+      try {
+        const parsed = JSON.parse(saved);
+        if (parsed.loggedOut) return null;
+        if (parsed.user) return parsed.user;
+      } catch (e) {
+        // fallback
+      }
     }
     return CURRENT_USER;
   });
@@ -114,6 +123,8 @@ export default function App() {
   // Modals
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showShortcutsHelpModal, setShowShortcutsHelpModal] = useState(false);
 
   // App settings state
   const [settings, setSettings] = useState<AppSettings>(() => {
@@ -151,7 +162,11 @@ export default function App() {
   }, [channels]);
 
   useEffect(() => {
-    localStorage.setItem('metatube_user', JSON.stringify({ loggedOut: !currentUser }));
+    if (currentUser) {
+      localStorage.setItem('metatube_user', JSON.stringify({ loggedOut: false, user: currentUser }));
+    } else {
+      localStorage.setItem('metatube_user', JSON.stringify({ loggedOut: true }));
+    }
   }, [currentUser]);
 
   useEffect(() => {
@@ -164,7 +179,7 @@ export default function App() {
 
   // Auth simulators
   const handleLogin = () => {
-    setCurrentUser(CURRENT_USER);
+    setShowAuthModal(true);
   };
 
   const handleLogout = () => {
@@ -339,6 +354,11 @@ export default function App() {
   const handleChannelFilter = (channelId: string | null) => {
     setActiveChannelFilter(channelId);
     setSelectedCategory('All');
+    if (channelId) {
+      setView('channel');
+    } else {
+      setView('home');
+    }
   };
 
   // Master Filter Formula for the Video Feed
@@ -460,6 +480,10 @@ export default function App() {
           setMobileSidebarOpen(prev => !prev);
         }}
         onSettingsClick={() => setShowSettingsModal(true)}
+        onEditProfileClick={() => {
+          setShowAuthModal(true);
+        }}
+        language={settings.language}
       />
 
       {/* Main Panel Wrapper */}
@@ -475,6 +499,8 @@ export default function App() {
           collapsed={sidebarCollapsed}
           mobileOpen={mobileSidebarOpen}
           onCloseMobile={() => setMobileSidebarOpen(false)}
+          language={settings.language}
+          onHelpShortcutsClick={() => setShowShortcutsHelpModal(true)}
         />
 
         {/* 3. Render Views dynamically in the stage */}
@@ -482,6 +508,28 @@ export default function App() {
           {currentView === 'dev-console' ? (
             /* Developer SQL and Architecture console panel */
             <DevConsole />
+          ) : currentView === 'analytics' ? (
+            /* Advanced AI Analytics and Viewer Habits Portal */
+            <AnalyticsDashboard
+              history={history}
+              videos={videos}
+              channels={channels}
+              language={settings.language}
+            />
+          ) : currentView === 'channel' && activeChannelFilter ? (
+            /* Dedicated Visited Channel Profile View */
+            <ChannelProfileView
+              channelId={activeChannelFilter}
+              channels={channels}
+              videos={videos}
+              language={settings.language}
+              onSubscribeToggle={handleSubscribeToggle}
+              onVideoClick={handleVideoSelect}
+              onBackToHome={() => {
+                setView('home');
+                setActiveChannelFilter(null);
+              }}
+            />
           ) : currentView === 'watch' && activeVideo ? (
             /* Immersive Custom Video Playback Page */
             <WatchPage
@@ -499,6 +547,10 @@ export default function App() {
               onVideoEnded={handleVideoEnded}
               isInWatchLater={watchLater.includes(activeVideo.id)}
               onToggleWatchLater={() => handleToggleWatchLater(activeVideo.id)}
+              onChannelClick={(chanId) => {
+                setActiveChannelFilter(chanId);
+                setView('channel');
+              }}
             />
           ) : (
             /* Grid Feeds (Home, Liked, Uploads, Subscribed channels) */
@@ -753,6 +805,10 @@ export default function App() {
                                   onRemove={() => handleRemoveFromHistory(video.id)}
                                   isInWatchLater={watchLater.includes(video.id)}
                                   onToggleWatchLater={() => handleToggleWatchLater(video.id)}
+                                  onChannelClick={(chanId) => {
+                                    setActiveChannelFilter(chanId);
+                                    setView('channel');
+                                  }}
                                 />
                               );
                             })}
@@ -782,6 +838,10 @@ export default function App() {
                         }
                         isInWatchLater={watchLater.includes(video.id)}
                         onToggleWatchLater={() => handleToggleWatchLater(video.id)}
+                        onChannelClick={(chanId) => {
+                          setActiveChannelFilter(chanId);
+                          setView('channel');
+                        }}
                       />
                     );
                   })}
@@ -809,6 +869,26 @@ export default function App() {
           settings={settings}
           onUpdateSettings={(newSettings) => setSettings(prev => ({ ...prev, ...newSettings }))}
           onResetAllData={handleResetAllData}
+        />
+      )}
+
+      {/* 6. Authentic & Interactive Google, Facebook, or Email Auth Modal */}
+      {showAuthModal && (
+        <AuthModal
+          onClose={() => setShowAuthModal(false)}
+          onLoginSuccess={(user) => {
+            setCurrentUser(user);
+          }}
+          currentUser={currentUser}
+          language={settings.language}
+        />
+      )}
+
+      {/* 7. Video Player Keyboard Shortcuts Help Modal */}
+      {showShortcutsHelpModal && (
+        <ShortcutsHelpModal
+          onClose={() => setShowShortcutsHelpModal(false)}
+          language={settings.language}
         />
       )}
     </div>
