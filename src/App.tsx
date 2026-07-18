@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   INITIAL_VIDEOS, INITIAL_COMMENTS, INITIAL_CHANNELS, CURRENT_USER 
 } from './data';
-import { Video, Comment, Channel, User, Category } from './types';
+import { Video, Comment, Channel, User, Category, Playlist } from './types';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import VideoCard from './components/VideoCard';
@@ -15,8 +15,10 @@ import AnalyticsDashboard from './components/AnalyticsDashboard';
 import ShortcutsHelpModal from './components/ShortcutsHelpModal';
 import ChannelProfileView from './components/ChannelProfileView';
 import ShortsView from './components/ShortsView';
-import { Sparkles, Terminal, LogIn, LogOut, ArrowUp, Zap, HelpCircle, Clock } from 'lucide-react';
+import PlaylistsView from './components/PlaylistsView';
+import { Sparkles, Terminal, LogIn, LogOut, ArrowUp, Zap, HelpCircle, Clock, HardDrive, Trash2, Sliders, AlertTriangle, TrendingDown, RefreshCw, CheckCircle2, Search, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 
 function parseDurationToSeconds(durationStr: string): number {
   if (!durationStr) return 0;
@@ -60,9 +62,9 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as Video[];
-        const parsedIds = new Set(parsed.map(v => v.id));
-        const missing = INITIAL_VIDEOS.filter(v => !parsedIds.has(v.id));
-        return [...parsed, ...missing];
+        // Filter out any previous demo/seed videos starting with 'vid-' or 'short-'
+        const filtered = parsed.filter(v => !v.id.startsWith('vid-') && !v.id.startsWith('short-'));
+        return filtered;
       } catch (e) {
         return INITIAL_VIDEOS;
       }
@@ -75,9 +77,9 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as Comment[];
-        const parsedIds = new Set(parsed.map(c => c.id));
-        const missing = INITIAL_COMMENTS.filter(c => !parsedIds.has(c.id));
-        return [...parsed, ...missing];
+        // Filter out any previous demo comments starting with 'comm-' or 'short-comm-'
+        const filtered = parsed.filter(c => !c.id.startsWith('comm-') && !c.id.startsWith('short-comm-'));
+        return filtered;
       } catch (e) {
         return INITIAL_COMMENTS;
       }
@@ -90,9 +92,7 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as Channel[];
-        const parsedIds = new Set(parsed.map(c => c.id));
-        const missing = INITIAL_CHANNELS.filter(c => !parsedIds.has(c.id));
-        return [...parsed, ...missing];
+        return parsed;
       } catch (e) {
         return INITIAL_CHANNELS;
       }
@@ -106,7 +106,13 @@ export default function App() {
       try {
         const parsed = JSON.parse(saved);
         if (parsed.loggedOut) return null;
-        if (parsed.user) return parsed.user;
+        if (parsed.user) {
+          // If previous user was a demo user, return the updated CURRENT_USER
+          if (parsed.user.id === 'usr-current') {
+            return CURRENT_USER;
+          }
+          return parsed.user;
+        }
       } catch (e) {
         // fallback
       }
@@ -138,12 +144,104 @@ export default function App() {
     return saved ? JSON.parse(saved) : [];
   });
 
+  const [downloads, setDownloads] = useState<string[]>(() => {
+    const saved = localStorage.getItem('metatube_downloads');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  const [downloadsMetadata, setDownloadsMetadata] = useState<Record<string, { downloadedAt: string; sizeMb: number; quality: '1080p' | '720p' | 'mp3' }>>(() => {
+    const saved = localStorage.getItem('metatube_downloads_metadata');
+    let metadata = saved ? JSON.parse(saved) : {};
+    
+    // Auto-generate metadata for any existing downloads that don't have it
+    // Assign some as "old" (e.g. 10 days ago) so they are immediately testable in the UI!
+    try {
+      const savedDownloads = localStorage.getItem('metatube_downloads');
+      const dlArray: string[] = savedDownloads ? JSON.parse(savedDownloads) : [];
+      
+      let updated = false;
+      dlArray.forEach((id, index) => {
+        if (!metadata[id]) {
+          const daysAgo = index % 2 === 0 ? 10 : 0;
+          const date = new Date();
+          date.setDate(date.getDate() - daysAgo);
+          
+          const qualities: ('1080p' | '720p' | 'mp3')[] = ['1080p', '720p', 'mp3'];
+          const qual = qualities[index % qualities.length];
+          const sizes = { '1080p': 58.9, '720p': 24.2, 'mp3': 4.8 };
+          
+          metadata[id] = {
+            downloadedAt: date.toISOString(),
+            sizeMb: sizes[qual],
+            quality: qual
+          };
+          updated = true;
+        }
+      });
+      
+      if (updated) {
+        localStorage.setItem('metatube_downloads_metadata', JSON.stringify(metadata));
+      }
+    } catch (e) {
+      console.error('Error backfilling downloads metadata', e);
+    }
+    
+    return metadata;
+  });
+
+  const [cleanupThresholdDays, setCleanupThresholdDays] = useState<number>(() => {
+    const saved = localStorage.getItem('metatube_downloads_threshold');
+    return saved ? parseInt(saved, 10) : 7;
+  });
+
+  const [compressingVideoId, setCompressingVideoId] = useState<string | null>(null);
+  const [compressingTarget, setCompressingTarget] = useState<'720p' | 'mp3' | null>(null);
+
+  const startCompressionSimulation = (videoId: string, target: '720p' | 'mp3') => {
+    setCompressingVideoId(videoId);
+    setCompressingTarget(target);
+    setTimeout(() => {
+      handleCompressDownload(videoId, target);
+      setCompressingVideoId(null);
+      setCompressingTarget(null);
+    }, 1200);
+  };
+
+  // Playlist Management States
+  const [playlists, setPlaylists] = useState<Playlist[]>(() => {
+    const saved = localStorage.getItem('metatube_playlists');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {
+        // fallback
+      }
+    }
+    return [
+      {
+        id: 'tech-favorites',
+        name: 'Cool Technology Highlights',
+        description: 'Fascinating tech walkthroughs and review streams.',
+        videoIds: [],
+        createdAt: new Date().toISOString()
+      },
+      {
+        id: 'nature-essentials',
+        name: 'Atmospheric Nature & Travel',
+        description: 'Breathtaking sceneries and relaxing ambient landscapes.',
+        videoIds: [],
+        createdAt: new Date().toISOString()
+      }
+    ];
+  });
+
   const [historySort, setHistorySort] = useState<'recent' | 'oldest' | 'progress'>('recent');
 
   // Navigation states
   const [currentView, setView] = useState<string>('home'); // 'home' | 'watch' | 'uploads' | 'liked' | 'dev-console' | 'history'
   const [activeVideo, setActiveVideo] = useState<Video | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
+  const [offlineSearchQuery, setOfflineSearchQuery] = useState('');
   const [activeChannelFilter, setActiveChannelFilter] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<Category>('All');
 
@@ -295,6 +393,22 @@ export default function App() {
     localStorage.setItem('metatube_watch_later', JSON.stringify(watchLater));
   }, [watchLater]);
 
+  useEffect(() => {
+    localStorage.setItem('metatube_downloads', JSON.stringify(downloads));
+  }, [downloads]);
+
+  useEffect(() => {
+    localStorage.setItem('metatube_downloads_metadata', JSON.stringify(downloadsMetadata));
+  }, [downloadsMetadata]);
+
+  useEffect(() => {
+    localStorage.setItem('metatube_downloads_threshold', String(cleanupThresholdDays));
+  }, [cleanupThresholdDays]);
+
+  useEffect(() => {
+    localStorage.setItem('metatube_playlists', JSON.stringify(playlists));
+  }, [playlists]);
+
   // Toast notification state
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
 
@@ -377,12 +491,250 @@ export default function App() {
     setHistory(prev => prev.filter(item => item.videoId !== videoId));
   };
 
+  const handleWatchAgain = (video: Video) => {
+    setHistory(prev => {
+      return prev.map(item => {
+        if (item.videoId === video.id) {
+          return { ...item, progress: 0, watchedAt: new Date().toLocaleString() };
+        }
+        return item;
+      });
+    });
+    handleVideoSelect(video);
+  };
+
   const handleToggleWatchLater = (videoId: string) => {
     setWatchLater(prev => 
       prev.includes(videoId) 
         ? prev.filter(id => id !== videoId) 
         : [...prev, videoId]
     );
+  };
+
+  const handleToggleDownload = (videoId: string, silent = false, quality?: '1080p' | '720p' | 'mp3') => {
+    setDownloads(prev => {
+      const isDownloaded = prev.includes(videoId);
+      if (isDownloaded) {
+        if (!silent) {
+          triggerToast(
+            settings.language === 'ar'
+              ? 'تم حذف الفيديو من التنزيلات'
+              : 'Removed video from offline downloads',
+            'info'
+          );
+        }
+        setDownloadsMetadata(meta => {
+          const newMeta = { ...meta };
+          delete newMeta[videoId];
+          return newMeta;
+        });
+        return prev.filter(id => id !== videoId);
+      } else {
+        if (!silent) {
+          triggerToast(
+            settings.language === 'ar'
+              ? 'تم حفظ الفيديو في التنزيلات بنجاح!'
+              : 'Video saved to offline downloads successfully!',
+            'success'
+          );
+        }
+        const qual = quality || '1080p';
+        const sizes = { '1080p': 58.9, '720p': 24.2, 'mp3': 4.8 };
+        setDownloadsMetadata(meta => ({
+          ...meta,
+          [videoId]: {
+            downloadedAt: new Date().toISOString(),
+            sizeMb: sizes[qual] || 58.9,
+            quality: qual
+          }
+        }));
+        return [...prev, videoId];
+      }
+    });
+  };
+
+  // Storage optimization & cleanup utility handlers
+  const handleCompressDownload = (videoId: string, targetQuality: '720p' | 'mp3') => {
+    const sizes = { '720p': 24.2, 'mp3': 4.8 };
+    const qualityLabel = targetQuality === 'mp3' ? 'MP3 Audio' : 'HD 720p';
+    
+    setDownloadsMetadata(prev => {
+      if (!prev[videoId]) return prev;
+      const currentSize = prev[videoId].sizeMb;
+      const savedSize = currentSize - sizes[targetQuality];
+      
+      triggerToast(
+        settings.language === 'ar'
+          ? `تم ضغط الفيديو بنجاح إلى ${qualityLabel} وتوفير ${savedSize.toFixed(1)} ميجابايت!`
+          : `Compressed to ${qualityLabel}! Saved ${savedSize.toFixed(1)} MB of storage space!`,
+        'success'
+      );
+      
+      return {
+        ...prev,
+        [videoId]: {
+          ...prev[videoId],
+          quality: targetQuality,
+          sizeMb: sizes[targetQuality]
+        }
+      };
+    });
+  };
+
+  const handleSimulateOldDownload = (videoId: string, daysAgo = 10) => {
+    setDownloadsMetadata(prev => {
+      if (!prev[videoId]) return prev;
+      const date = new Date();
+      date.setDate(date.getDate() - daysAgo);
+      
+      triggerToast(
+        settings.language === 'ar'
+          ? `تم تعديل تاريخ تنزيل الفيديو ليكون قبل ${daysAgo} أيام لتسهيل تجربة ميزة التنظيف!`
+          : `Simulated download date to ${daysAgo} days ago for testing cleanup alerts!`,
+        'info'
+      );
+      
+      return {
+        ...prev,
+        [videoId]: {
+          ...prev[videoId],
+          downloadedAt: date.toISOString()
+        }
+      };
+    });
+  };
+
+  const handleCleanupOldDownloads = () => {
+    const now = new Date();
+    const thresholdMs = cleanupThresholdDays * 24 * 60 * 60 * 1000;
+    
+    let cleanedCount = 0;
+    let savedSpace = 0;
+    
+    setDownloads(prev => {
+      const toKeep: string[] = [];
+      const toRemove: string[] = [];
+      
+      prev.forEach(id => {
+        const meta = downloadsMetadata[id];
+        if (meta) {
+          const downloadDate = new Date(meta.downloadedAt);
+          if (now.getTime() - downloadDate.getTime() > thresholdMs) {
+            toRemove.push(id);
+            cleanedCount++;
+            savedSpace += meta.sizeMb;
+          } else {
+            toKeep.push(id);
+          }
+        } else {
+          toKeep.push(id);
+        }
+      });
+      
+      if (cleanedCount > 0) {
+        setDownloadsMetadata(meta => {
+          const newMeta = { ...meta };
+          toRemove.forEach(id => {
+            delete newMeta[id];
+          });
+          return newMeta;
+        });
+        
+        triggerToast(
+          settings.language === 'ar'
+            ? `تم بنجاح تنظيف ${cleanedCount} فيديوهات قديمة وتوفير ${savedSpace.toFixed(1)} ميجابايت!`
+            : `Successfully cleared ${cleanedCount} old downloads, saving ${savedSpace.toFixed(1)} MB!`,
+          'success'
+        );
+        return toKeep;
+      } else {
+        triggerToast(
+          settings.language === 'ar'
+            ? 'لم يتم العثور على أي فيديوهات قديمة لتنظيفها!'
+            : 'No old downloads matched the current filter!',
+          'info'
+        );
+        return prev;
+      }
+    });
+  };
+
+  // Playlist actions
+  const handleCreatePlaylist = (name: string, description: string) => {
+    const newPlaylist = {
+      id: `playlist-${Date.now()}`,
+      name,
+      description,
+      videoIds: [],
+      createdAt: new Date().toISOString()
+    };
+    
+    setPlaylists(prev => [newPlaylist, ...prev]);
+    triggerToast(
+      settings.language === 'ar'
+        ? `تم إنشاء قائمة التشغيل "${name}" بنجاح!`
+        : `Playlist "${name}" created successfully!`,
+      'success'
+    );
+  };
+
+  const handleUpdatePlaylist = (id: string, name: string, description: string) => {
+    setPlaylists(prev => prev.map(p => {
+      if (p.id === id) {
+        return { ...p, name, description };
+      }
+      return p;
+    }));
+    
+    triggerToast(
+      settings.language === 'ar'
+        ? 'تم تحديث قائمة التشغيل!'
+        : 'Playlist updated successfully!',
+      'success'
+    );
+  };
+
+  const handleDeletePlaylist = (id: string) => {
+    setPlaylists(prev => prev.filter(p => p.id !== id));
+    triggerToast(
+      settings.language === 'ar'
+        ? 'تم حذف قائمة التشغيل!'
+        : 'Playlist deleted!',
+      'info'
+    );
+  };
+
+  const handleToggleVideoInPlaylist = (playlistId: string, videoId: string) => {
+    let status: 'added' | 'removed' = 'added';
+    
+    setPlaylists(prev => prev.map(p => {
+      if (p.id === playlistId) {
+        const exists = p.videoIds.includes(videoId);
+        const updatedVideoIds = exists
+          ? p.videoIds.filter(id => id !== videoId)
+          : [...p.videoIds, videoId];
+        
+        status = exists ? 'removed' : 'added';
+        return { ...p, videoIds: updatedVideoIds };
+      }
+      return p;
+    }));
+
+    if (status === 'added') {
+      triggerToast(
+        settings.language === 'ar'
+          ? 'تمت إضافة الفيديو إلى قائمة التشغيل!'
+          : 'Added video to playlist!',
+        'success'
+      );
+    } else {
+      triggerToast(
+        settings.language === 'ar'
+          ? 'تمت إزالة الفيديو من قائمة التشغيل!'
+          : 'Removed video from playlist!',
+        'info'
+      );
+    }
   };
 
   // Video autoplay transition handler
@@ -406,34 +758,133 @@ export default function App() {
     setView('home');
   };
 
+  // Delete video handler
+  const handleDeleteVideo = (videoId: string) => {
+    const isArabic = settings.language === 'ar';
+    const confirmMessage = isArabic 
+      ? 'هل أنت متأكد من رغبتك في حذف هذا الفيديو نهائياً من قناتك؟' 
+      : 'Are you sure you want to permanently delete this video from your channel?';
+    
+    if (window.confirm(confirmMessage)) {
+      // 1. Delete from videos state
+      setVideos(prev => prev.filter(v => v.id !== videoId));
+      
+      // 2. Delete from history state
+      setHistory(prev => prev.filter(h => h.videoId !== videoId));
+      
+      // 3. Delete from watch later state
+      setWatchLater(prev => prev.filter(id => id !== videoId));
+      
+      // 4. Delete from downloads state
+      setDownloads(prev => prev.filter(id => id !== videoId));
+      
+      // 5. Delete from playlists state
+      setPlaylists(prev => prev.map(p => ({
+        ...p,
+        videoIds: p.videoIds.filter(id => id !== videoId)
+      })));
+
+      // 6. If currently watching this video, clear it or go back to home
+      if (activeVideo && activeVideo.id === videoId) {
+        setActiveVideo(null);
+        setView('home');
+      }
+
+      triggerToast(
+        isArabic 
+          ? 'تم حذف الفيديو بنجاح من قناتك!' 
+          : 'Video deleted successfully from your channel!',
+        'success'
+      );
+    }
+  };
+
   // Subscriptions toggles
   const handleSubscribeToggle = (channelId: string) => {
-    setChannels(prev => 
-      prev.map(c => {
-        if (c.id === channelId) {
-          const updatedSub = !c.isSubscribed;
-          return {
-            ...c,
-            isSubscribed: updatedSub,
-            subscribersCount: updatedSub ? c.subscribersCount + 1 : c.subscribersCount - 1
-          };
-        }
-        return c;
-      })
+    const isOwnChannel = currentUser && (
+      channelId === currentUser.username ||
+      channelId === 'user_channel' ||
+      channelId === 'chan-current-mock' ||
+      channelId === 'usr-current'
     );
+    
+    if (isOwnChannel) {
+      triggerToast(
+        settings.language === 'ar'
+          ? 'لا يمكنك الاشتراك في قناتك الخاصة!'
+          : 'You cannot subscribe to your own channel!',
+        'error'
+      );
+      return;
+    }
+
+    setChannels(prev => {
+      const exists = prev.some(c => c.id === channelId);
+      if (exists) {
+        return prev.map(c => {
+          if (c.id === channelId) {
+            const updatedSub = !c.isSubscribed;
+            triggerToast(
+              settings.language === 'ar'
+                ? (updatedSub ? 'تم الاشتراك في القناة بنجاح! 🎉' : 'تم إلغاء الاشتراك في القناة.')
+                : (updatedSub ? 'Subscribed to channel! 🎉' : 'Unsubscribed from channel.'),
+              'success'
+            );
+            return {
+              ...c,
+              isSubscribed: updatedSub,
+              subscribersCount: updatedSub ? c.subscribersCount + 1 : Math.max(0, c.subscribersCount - 1)
+            };
+          }
+          return c;
+        });
+      } else {
+        // Retrieve info from matching videos
+        const videoWithChannel = videos.find(v => v.channelId === channelId) || (activeVideo && activeVideo.channelId === channelId ? activeVideo : null);
+        const name = videoWithChannel?.channelName || (settings.language === 'ar' ? 'قناة جديدة' : 'New Channel');
+        const avatarUrl = videoWithChannel?.channelAvatar || 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80';
+        
+        const newChannel: Channel = {
+          id: channelId,
+          name,
+          avatarUrl,
+          subscribersCount: 1451,
+          isSubscribed: true
+        };
+        
+        triggerToast(
+          settings.language === 'ar' ? 'تم الاشتراك في القناة بنجاح! 🎉' : 'Subscribed to channel! 🎉',
+          'success'
+        );
+        return [...prev, newChannel];
+      }
+    });
   };
 
   const isSubscribed = (channelId: string) => {
-    // If it's a current user's newly uploaded channel, it counts as false
-    if (channelId === 'chan-current-mock') return false;
+    const isOwnChannel = currentUser && (
+      channelId === currentUser.username ||
+      channelId === 'user_channel' ||
+      channelId === 'chan-current-mock' ||
+      channelId === 'usr-current'
+    );
+    if (isOwnChannel) return false;
+    
     const chan = channels.find(c => c.id === channelId);
     return chan ? !!chan.isSubscribed : false;
   };
 
   const getSubscriberCount = (channelId: string) => {
-    if (channelId === 'chan-current-mock') return 1; // current developer profile subscriber
+    const isOwnChannel = currentUser && (
+      channelId === currentUser.username ||
+      channelId === 'user_channel' ||
+      channelId === 'chan-current-mock' ||
+      channelId === 'usr-current'
+    );
+    if (isOwnChannel) return 2450;
+
     const chan = channels.find(c => c.id === channelId);
-    return chan ? chan.subscribersCount : 0;
+    return chan ? chan.subscribersCount : 1450;
   };
 
   // Likes updates
@@ -521,8 +972,29 @@ export default function App() {
 
   // Master Filter Formula for the Video Feed
   const getDisplayVideos = () => {
-    if (searchQuery.trim() && searchMode === 'web' && currentView === 'home' && !activeChannelFilter) {
-      return webSearchVideos;
+    const isOffline = typeof navigator !== 'undefined' && !navigator.onLine;
+
+    if (searchQuery.trim() && currentView === 'home' && !activeChannelFilter) {
+      const isWebSearchNoResults = searchMode === 'web' && webSearchVideos.length === 0;
+      if (isOffline || isWebSearchNoResults) {
+        // Fallback: search and filter downloaded videos specifically
+        const downloadedVideos = downloads
+          .map(id => videos.find(v => v.id === id))
+          .filter((v): v is Video => !!v);
+
+        const matchText = searchQuery.toLowerCase();
+        return downloadedVideos.filter(video => {
+          const titleMatch = video.title.toLowerCase().includes(matchText);
+          const descMatch = video.description.toLowerCase().includes(matchText);
+          const channelMatch = video.channelName.toLowerCase().includes(matchText);
+          const categoryMatch = video.category.toLowerCase().includes(matchText);
+          return titleMatch || descMatch || channelMatch || categoryMatch;
+        });
+      }
+
+      if (searchMode === 'web') {
+        return webSearchVideos;
+      }
     }
 
     if (currentView === 'history') {
@@ -559,6 +1031,26 @@ export default function App() {
         });
       }
       return watchLaterVideos;
+    }
+
+    if (currentView === 'downloads') {
+      const downloadedVideos = downloads
+        .map(id => videos.find(v => v.id === id))
+        .filter((v): v is Video => !!v);
+
+      const activeQuery = offlineSearchQuery.trim() ? offlineSearchQuery : searchQuery;
+
+      if (activeQuery.trim()) {
+        const matchText = activeQuery.toLowerCase();
+        return downloadedVideos.filter(video => {
+          const titleMatch = video.title.toLowerCase().includes(matchText);
+          const descMatch = video.description.toLowerCase().includes(matchText);
+          const channelMatch = video.channelName.toLowerCase().includes(matchText);
+          const categoryMatch = video.category.toLowerCase().includes(matchText);
+          return titleMatch || descMatch || channelMatch || categoryMatch;
+        });
+      }
+      return downloadedVideos;
     }
 
     return videos.filter(video => {
@@ -602,6 +1094,44 @@ export default function App() {
   const filteredVideos = getDisplayVideos();
 
   const subscribedChannels = channels.filter(c => c.isSubscribed);
+
+  // Dynamic offline storage calculations
+  const now = new Date();
+  const thresholdMs = cleanupThresholdDays * 24 * 60 * 60 * 1000;
+  const oldDownloadedIds = downloads.filter(id => {
+    const meta = downloadsMetadata[id];
+    if (!meta) return false;
+    const downloadDate = new Date(meta.downloadedAt);
+    return (now.getTime() - downloadDate.getTime()) > thresholdMs;
+  });
+  const oldSpaceMb = oldDownloadedIds.reduce((sum, id) => sum + (downloadsMetadata[id]?.sizeMb || 0), 0);
+  const totalSpaceMb = downloads.reduce((sum, id) => sum + (downloadsMetadata[id]?.sizeMb || 58.9), 0);
+
+  // Space usage calculations per video quality category
+  const space1080p = downloads.reduce((sum, id) => {
+    const m = downloadsMetadata[id] || { sizeMb: 58.9, quality: '1080p' };
+    return sum + ((m.quality || '1080p') === '1080p' ? (m.sizeMb || 58.9) : 0);
+  }, 0);
+
+  const space720p = downloads.reduce((sum, id) => {
+    const m = downloadsMetadata[id] || { sizeMb: 58.9, quality: '1080p' };
+    return sum + (m.quality === '720p' ? (m.sizeMb || 0) : 0);
+  }, 0);
+
+  const spaceMp3 = downloads.reduce((sum, id) => {
+    const m = downloadsMetadata[id] || { sizeMb: 58.9, quality: '1080p' };
+    return sum + (m.quality === 'mp3' ? (m.sizeMb || 0) : 0);
+  }, 0);
+
+  const count1080p = downloads.filter(id => (downloadsMetadata[id]?.quality || '1080p') === '1080p').length;
+  const count720p = downloads.filter(id => downloadsMetadata[id]?.quality === '720p').length;
+  const countMp3 = downloads.filter(id => downloadsMetadata[id]?.quality === 'mp3').length;
+
+  const qualityChartData = [
+    { id: '1080p', name: settings.language === 'ar' ? 'فيديو 1080p Full HD' : '1080p Full HD', value: Number(space1080p.toFixed(1)), color: '#2563eb', count: count1080p },
+    { id: '720p', name: settings.language === 'ar' ? 'فيديو 720p HD' : '720p HD Ready', value: Number(space720p.toFixed(1)), color: '#10b981', count: count720p },
+    { id: 'mp3', name: settings.language === 'ar' ? 'صوت MP3 Audio' : 'MP3 Audio Only', value: Number(spaceMp3.toFixed(1)), color: '#a855f7', count: countMp3 }
+  ].filter(item => item.value > 0);
 
   const ACCENT_COLORS = {
     red: '#dc2626',
@@ -711,6 +1241,8 @@ export default function App() {
                 setActiveChannelFilter(null);
               }}
               onShare={handleShare}
+              currentUser={currentUser}
+              onDeleteVideo={handleDeleteVideo}
             />
           ) : currentView === 'watch' && activeVideo ? (
             /* Immersive Custom Video Playback Page */
@@ -729,12 +1261,30 @@ export default function App() {
               onVideoEnded={handleVideoEnded}
               isInWatchLater={watchLater.includes(activeVideo.id)}
               onToggleWatchLater={() => handleToggleWatchLater(activeVideo.id)}
+              isInDownloads={downloads.includes(activeVideo.id)}
+              onToggleDownload={() => handleToggleDownload(activeVideo.id)}
               onChannelClick={(chanId) => {
                 setActiveChannelFilter(chanId);
                 setView('channel');
               }}
               language={settings.language}
             />
+          ) : currentView === 'playlists' ? (
+            /* Custom user playlists management view */
+            <div className="p-4 md:p-6">
+              <PlaylistsView
+                playlists={playlists}
+                onCreatePlaylist={handleCreatePlaylist}
+                onUpdatePlaylist={handleUpdatePlaylist}
+                onDeletePlaylist={handleDeletePlaylist}
+                onToggleVideoInPlaylist={handleToggleVideoInPlaylist}
+                allVideos={videos}
+                watchLater={watchLater}
+                downloads={downloads}
+                onVideoSelect={handleVideoSelect}
+                language={settings.language === 'ar' ? 'ar' : 'en'}
+              />
+            </div>
           ) : (
             /* Grid Feeds (Home, Liked, Uploads, Subscribed channels) */
             <div className="p-4 md:p-6 space-y-6">
@@ -872,6 +1422,7 @@ export default function App() {
                     {currentView === 'liked' && (settings.language === 'ar' ? 'الفيديوهات المفضلة' : 'My Liked Feed')}
                     {currentView === 'history' && (settings.language === 'ar' ? 'سجل المشاهدة' : 'Watch History')}
                     {currentView === 'watch-later' && (settings.language === 'ar' ? 'المشاهدة لاحقًا' : 'Watch Later List')}
+                    {currentView === 'downloads' && (settings.language === 'ar' ? 'التنزيلات والفيديوهات المحفوظة' : 'Offline Downloads & Saved Videos')}
                   </h2>
                   <p className="text-xs text-gray-500 font-sans">
                     {currentView === 'home' && !activeChannelFilter && (
@@ -883,6 +1434,7 @@ export default function App() {
                     {currentView === 'liked' && (settings.language === 'ar' ? 'مجموعتك المنسقة والملهمة من مقاطع الفيديو التي نالت إعجابك.' : 'Your curated list of videos that inspired you.')}
                     {currentView === 'history' && (settings.language === 'ar' ? 'أعد مشاهدة وإدارة مقاطع الفيديو التي قمت بمتابعتها مسبقًا.' : 'Revisit and manage videos you watched previously.')}
                     {currentView === 'watch-later' && (settings.language === 'ar' ? 'مقاطع الفيديو التي قمت بحفظها لتستمتع بمشاهدتها في وقت لاحق.' : 'Saved videos to watch at your convenience.')}
+                    {currentView === 'downloads' && (settings.language === 'ar' ? 'استعرض الفيديوهات المحملة محلياً أو المحفوظة للمشاهدة بدون اتصال بالإنترنت.' : 'Browse videos downloaded or saved locally for offline viewing.')}
                   </p>
                 </div>
 
@@ -930,12 +1482,347 @@ export default function App() {
                       Clear Watch Later
                     </button>
                   )}
+                  {currentView === 'downloads' && (
+                    <div className="relative min-w-[200px] sm:min-w-[260px] md:min-w-[300px]">
+                      <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                      <input
+                        id="offline-search-input"
+                        type="text"
+                        value={offlineSearchQuery}
+                        onChange={(e) => setOfflineSearchQuery(e.target.value)}
+                        placeholder={settings.language === 'ar' ? 'بحث في التنزيلات المحفوظة...' : 'Search offline downloads...'}
+                        className="w-full pl-9 pr-8 py-1.5 bg-white border border-gray-200 rounded-full text-xs focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all shadow-xs"
+                      />
+                      {offlineSearchQuery && (
+                        <button
+                          onClick={() => setOfflineSearchQuery('')}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none p-0.5"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      )}
+                    </div>
+                  )}
+                  {currentView === 'downloads' && downloads.length > 0 && (
+                    <button
+                      id="clear-downloads-btn"
+                      onClick={() => {
+                        const confirmMsg = settings.language === 'ar'
+                          ? 'هل أنت متأكد من رغبتك في حذف جميع الفيديوهات من قائمة التنزيلات؟'
+                          : 'Are you sure you want to clear your downloads list?';
+                        if (confirm(confirmMsg)) {
+                          setDownloads([]);
+                        }
+                      }}
+                      className="text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100/80 px-4 py-1.5 rounded-full transition-colors active:scale-95 border border-red-200 cursor-pointer whitespace-nowrap"
+                    >
+                      {settings.language === 'ar' ? 'حذف جميع التنزيلات 🗑️' : 'Clear All Downloads 🗑️'}
+                    </button>
+                  )}
                   <div className="flex items-center gap-2 font-mono text-[10px] text-gray-500 bg-white px-3 py-1.5 rounded-lg border border-gray-200">
                     <Zap className="w-3.5 h-3.5 text-yellow-500" />
                     <span>LOCAL PLAYBACK: {filteredVideos.length} STREAMABLE</span>
                   </div>
                 </div>
               </div>
+
+              {/* Storage & Space Optimization Dashboard */}
+              {currentView === 'downloads' && downloads.length > 0 && (
+                <div className="mb-8 p-5 bg-white border border-gray-200 rounded-3xl shadow-xs space-y-5 font-sans">
+                  {/* Dashboard Header */}
+                  <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-gray-100 pb-4">
+                    <div className="flex items-start gap-3">
+                      <div className="p-2.5 bg-red-50 text-red-600 rounded-xl">
+                        <HardDrive className="w-6 h-6" />
+                      </div>
+                      <div className="space-y-0.5">
+                        <h3 className="font-bold text-gray-900 text-sm md:text-base flex items-center gap-1.5">
+                          {settings.language === 'ar' ? 'تحسين مساحة التخزين المحلية' : 'Local Storage Space & Optimization'}
+                        </h3>
+                        <p className="text-xs text-gray-500">
+                          {settings.language === 'ar'
+                            ? 'إدارة التنزيلات غير المتصلة بالإنترنت وتحسين مساحة التخزين في متصفحك.'
+                            : 'Manage offline downloads and reclaim space from cached video assets.'}
+                        </p>
+                      </div>
+                    </div>
+                    
+                    {/* Compact stats overview */}
+                    <div className="flex flex-wrap items-center gap-4 text-xs font-mono">
+                      <div className="px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-gray-700 flex items-center gap-1.5">
+                        <span className="font-sans font-medium text-gray-400">
+                          {settings.language === 'ar' ? 'إجمالي المساحة المستخدمة:' : 'Total Space Used:'}
+                        </span>
+                        <span className="font-bold text-gray-900">{totalSpaceMb.toFixed(1)} MB</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Grid Layout containing quality chart and sandbox optimizer tools */}
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+                    {/* Left side: Pie Chart visualization (5 cols) */}
+                    <div className="lg:col-span-5 bg-gray-50 border border-gray-150 p-5 rounded-2xl flex flex-col h-full">
+                      <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1.5 mb-1">
+                        <HardDrive className="w-3.5 h-3.5 text-gray-500" />
+                        {settings.language === 'ar' ? 'توزيع جودة الملفات والمساحة' : 'Storage Quality Distribution'}
+                      </h4>
+                      <p className="text-[11px] text-gray-500 mb-4">
+                        {settings.language === 'ar'
+                          ? 'النسبة المئوية ومساحة التخزين المستهلكة من قبل كل جودة ملف.'
+                          : 'Proportional space used by different video quality categories.'}
+                      </p>
+
+                      {/* Donut Chart container */}
+                      <div className="relative h-[220px] w-full flex items-center justify-center bg-white rounded-2xl border border-gray-100 p-2">
+                        <ResponsiveContainer width="100%" height="100%">
+                          <PieChart>
+                            <Pie
+                              data={qualityChartData}
+                              cx="50%"
+                              cy="50%"
+                              innerRadius={60}
+                              outerRadius={80}
+                              paddingAngle={4}
+                              dataKey="value"
+                            >
+                              {qualityChartData.map((entry, index) => (
+                                <Cell key={`cell-${index}`} fill={entry.color} />
+                              ))}
+                            </Pie>
+                            <Tooltip 
+                              formatter={(value: any) => [`${value} MB`, settings.language === 'ar' ? 'الحجم' : 'Size']}
+                              contentStyle={{ borderRadius: '12px', border: '1px solid #f1f5f9', fontFamily: 'sans-serif', fontSize: '11px', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.05)' }}
+                            />
+                          </PieChart>
+                        </ResponsiveContainer>
+                        
+                        {/* Donut Center Display */}
+                        <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+                          <span className="text-[9px] uppercase font-bold text-gray-400 tracking-wider">
+                            {settings.language === 'ar' ? 'مستغل' : 'Used'}
+                          </span>
+                          <span className="text-sm font-mono font-bold text-gray-900 mt-0.5">
+                            {totalSpaceMb.toFixed(1)} MB
+                          </span>
+                          <span className="text-[8px] text-gray-500 font-medium">
+                            {downloads.length} {settings.language === 'ar' ? 'ملفات' : 'Files'}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Detail list table */}
+                      <div className="mt-4 space-y-2 bg-white border border-gray-100 p-3.5 rounded-2xl">
+                        {[
+                          { 
+                            id: '1080p',
+                            name: settings.language === 'ar' ? 'فيديو 1080p Full HD' : '1080p Full HD', 
+                            value: space1080p, 
+                            color: '#2563eb', 
+                            count: count1080p 
+                          },
+                          { 
+                            id: '720p',
+                            name: settings.language === 'ar' ? 'فيديو 720p HD' : '720p HD Ready', 
+                            value: space720p, 
+                            color: '#10b981', 
+                            count: count720p 
+                          },
+                          { 
+                            id: 'mp3',
+                            name: settings.language === 'ar' ? 'صوت MP3 Audio' : 'MP3 Audio Only', 
+                            value: spaceMp3, 
+                            color: '#a855f7', 
+                            count: countMp3 
+                          }
+                        ].map((entry) => {
+                          const pct = totalSpaceMb > 0 ? ((entry.value / totalSpaceMb) * 100).toFixed(0) : '0';
+                          return (
+                            <div key={entry.id} className="flex items-center justify-between text-[11px] border-b border-gray-100/60 pb-2 last:border-0 last:pb-0">
+                              <div className="flex items-center gap-2">
+                                <div className="w-2.5 h-2.5 rounded-full" style={{ backgroundColor: entry.color }} />
+                                <span className="font-semibold text-gray-700">{entry.name}</span>
+                                <span className="text-[9px] text-gray-400 font-mono">({entry.count})</span>
+                              </div>
+                              <div className="text-right font-mono text-gray-900 font-medium flex items-center gap-1.5">
+                                <span>{entry.value.toFixed(1)} MB</span>
+                                <span className="text-[9px] bg-slate-50 text-slate-500 border border-slate-100 px-1 py-0.5 rounded font-semibold">{pct}%</span>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+
+                    {/* Right side: Alerts and Files list (7 cols) */}
+                    <div className="lg:col-span-7 space-y-5">
+                      {/* Recommendations / Alert Banner */}
+                      <AnimatePresence mode="wait">
+                        {oldDownloadedIds.length > 0 ? (
+                          <motion.div
+                            initial={{ opacity: 0, y: -10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -10 }}
+                            className="p-4 bg-amber-50 border border-amber-200/60 rounded-2xl flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="p-1.5 bg-amber-100 text-amber-700 rounded-lg mt-0.5">
+                                <AlertTriangle className="w-5 h-5" />
+                              </div>
+                              <div className="space-y-1">
+                                <p className="text-sm font-bold text-amber-900">
+                                  {settings.language === 'ar'
+                                    ? `موجه التوفير: تم العثور على ${oldDownloadedIds.length} تنزيلات قديمة!`
+                                    : `Cleanup Alert: ${oldDownloadedIds.length} old downloads detected!`}
+                                </p>
+                                <p className="text-xs text-amber-700">
+                                  {settings.language === 'ar'
+                                    ? `هذه الفيديوهات تم تنزيلها منذ أكثر من ${cleanupThresholdDays} أيام وتشغل مساحة قدرها ${oldSpaceMb.toFixed(1)} ميجابايت من التخزين المؤقت المحلي.`
+                                    : `These files were saved more than ${cleanupThresholdDays} days ago and occupy ${oldSpaceMb.toFixed(1)} MB. Optimizing them will free up cache space.`}
+                                </p>
+                              </div>
+                            </div>
+                            <button
+                              onClick={handleCleanupOldDownloads}
+                              className="self-start sm:self-center bg-amber-600 hover:bg-amber-750 text-white text-xs font-bold px-4 py-2.5 rounded-xl transition-all duration-200 flex items-center gap-1.5 active:scale-95 shadow-sm shadow-amber-600/10 hover:shadow-amber-600/20 cursor-pointer shrink-0"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              {settings.language === 'ar' ? 'تنظيف الفيديوهات القديمة تلقائياً' : 'Auto-Purge Old Downloads'}
+                            </button>
+                          </motion.div>
+                        ) : (
+                          <motion.div
+                            initial={{ opacity: 0, y: -10 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -10 }}
+                            className="p-4 bg-emerald-50 border border-emerald-200/60 rounded-2xl flex items-center gap-3 text-emerald-800"
+                          >
+                            <div className="p-1.5 bg-emerald-100 text-emerald-700 rounded-lg">
+                              <CheckCircle2 className="w-5 h-5" />
+                            </div>
+                            <div className="space-y-0.5">
+                              <p className="text-sm font-bold text-emerald-900">
+                                {settings.language === 'ar' ? 'مساحة التخزين الخاصة بك ممتازة!' : 'Storage Status: Excellent!'}
+                              </p>
+                              <p className="text-xs text-emerald-700">
+                                {settings.language === 'ar'
+                                  ? `جميع تنزيلاتك المحفوظة حديثة ومحدثة (خلال أقل من ${cleanupThresholdDays} أيام).`
+                                  : `No old or stale offline downloads found exceeding your ${cleanupThresholdDays}-day retention threshold.`}
+                              </p>
+                            </div>
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+
+                      {/* Sandboxed File-by-File Optimization Playground */}
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <h4 className="text-xs font-bold text-gray-700 uppercase tracking-wider flex items-center gap-1">
+                            <Sliders className="w-3.5 h-3.5 text-gray-500" />
+                            {settings.language === 'ar' ? 'تفاصيل الملفات وأدوات التحسين والمحاكاة' : 'Offline Files & Sandbox Optimization'}
+                          </h4>
+                          <span className="text-[10px] bg-red-50 text-red-600 px-2.5 py-0.5 rounded-full font-sans font-semibold">
+                            {settings.language === 'ar' ? 'مساحة التخزين النشطة' : 'Local Sandbox Storage'}
+                          </span>
+                        </div>
+
+                        <div className="border border-gray-100 rounded-2xl overflow-hidden divide-y divide-gray-100 max-h-60 overflow-y-auto bg-white">
+                          {downloads.map(id => {
+                            const video = videos.find(v => v.id === id);
+                            if (!video) return null;
+                            const meta = downloadsMetadata[id] || { downloadedAt: new Date().toISOString(), sizeMb: 58.9, quality: '1080p' };
+                            const downloadDate = new Date(meta.downloadedAt);
+                            const daysOld = Math.floor((now.getTime() - downloadDate.getTime()) / (1000 * 60 * 60 * 24));
+                            const isOld = daysOld > cleanupThresholdDays;
+                            const isCurrentlyCompressing = compressingVideoId === id;
+
+                            return (
+                              <div key={id} className="p-3 md:p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white hover:bg-slate-50/50 transition-colors">
+                                {/* Video Title and Metadata */}
+                                <div className="space-y-1 max-w-md flex-1">
+                                  <p className="font-sans font-bold text-gray-900 text-xs md:text-sm line-clamp-1">{video.title}</p>
+                                  <div className="flex flex-wrap items-center gap-2 text-[10px] md:text-xs">
+                                    <span className={`px-2 py-0.5 rounded-full font-medium ${
+                                      isOld ? 'bg-amber-100 text-amber-800' : 'bg-gray-100 text-gray-600'
+                                    }`}>
+                                      {isOld 
+                                        ? (settings.language === 'ar' ? `${daysOld} أيام (قديم ⚠️)` : `${daysOld} days old (Stale ⚠️)`)
+                                        : (settings.language === 'ar' ? `${daysOld} أيام (حديث)` : `${daysOld} days old (New)`)}
+                                    </span>
+                                    <span className="text-gray-400">•</span>
+                                    <span className="text-gray-500 font-mono">
+                                      {settings.language === 'ar' ? 'تاريخ التنزيل:' : 'Saved:'} {downloadDate.toLocaleDateString(settings.language === 'ar' ? 'ar-EG' : 'en-US')}
+                                    </span>
+                                    <span className="text-gray-400">•</span>
+                                    <span className="text-gray-500 font-mono bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded font-bold text-[10px]">
+                                      {meta.quality.toUpperCase()} • {meta.sizeMb.toFixed(1)} MB
+                                    </span>
+                                  </div>
+                                </div>
+
+                                {/* Optimizer Actions */}
+                                <div className="flex flex-wrap items-center gap-2">
+                                  {isCurrentlyCompressing ? (
+                                    <div className="flex items-center gap-1.5 text-xs text-red-600 font-semibold bg-red-50/60 px-3 py-1.5 rounded-xl border border-red-100 animate-pulse">
+                                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                      <span>
+                                        {settings.language === 'ar'
+                                          ? `جاري تحويل الملف إلى ${compressingTarget === 'mp3' ? 'صوت MP3' : 'فيديو HD'}...`
+                                          : `Converting to ${compressingTarget?.toUpperCase()}...`}
+                                      </span>
+                                    </div>
+                                  ) : (
+                                    <>
+                                      {/* Test/Simulation shortcut: make old */}
+                                      {!isOld && (
+                                        <button
+                                          onClick={() => handleSimulateOldDownload(id, 10)}
+                                          className="text-[10px] font-bold text-amber-700 bg-amber-50 hover:bg-amber-100/80 px-2.5 py-1.5 rounded-xl border border-amber-200 transition-colors cursor-pointer"
+                                          title="Simulate this download being 10 days old to test the cleanup filter"
+                                        >
+                                          {settings.language === 'ar' ? '🕒 محاكاة تاريخ قديم' : '🕒 Age to 10d'}
+                                        </button>
+                                      )}
+
+                                      {/* Compress option if quality is 1080p */}
+                                      {meta.quality === '1080p' && (
+                                        <button
+                                          onClick={() => startCompressionSimulation(id, '720p')}
+                                          className="text-[10px] font-bold text-blue-700 bg-blue-50 hover:bg-blue-100/80 px-2.5 py-1.5 rounded-xl border border-blue-200 transition-colors cursor-pointer"
+                                        >
+                                          {settings.language === 'ar' ? '🗜️ ضغط لـ 720p' : '🗜️ Compress to 720p'}
+                                        </button>
+                                      )}
+
+                                      {/* Extract MP3 Option */}
+                                      {meta.quality !== 'mp3' && (
+                                        <button
+                                          onClick={() => startCompressionSimulation(id, 'mp3')}
+                                          className="text-[10px] font-bold text-purple-700 bg-purple-50 hover:bg-purple-100/80 px-2.5 py-1.5 rounded-xl border border-purple-200 transition-colors cursor-pointer"
+                                        >
+                                          {settings.language === 'ar' ? '🎵 استخراج MP3' : '🎵 Extract MP3'}
+                                        </button>
+                                      )}
+
+                                      {/* Quick Delete Option per downloaded item */}
+                                      <button
+                                        onClick={() => handleToggleDownload(id)}
+                                        className="p-1.5 text-gray-400 hover:text-red-600 bg-gray-50 hover:bg-red-50 rounded-xl border border-gray-100 hover:border-red-100 transition-all cursor-pointer"
+                                        title="Delete Download"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                      </button>
+                                    </>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Dynamic Video Grid */}
               {filteredVideos.length === 0 ? (
@@ -954,6 +1841,10 @@ export default function App() {
                           ? 'لا توجد فيديوهات معجب بها بعد'
                           : currentView === 'uploads'
                           ? 'قائمة المرفوعات فارغة'
+                          : currentView === 'downloads'
+                          ? (downloads.length === 0 ? 'قائمة التنزيلات فارغة 📥' : 'لم يتم العثور على أي فيديوهات مطابقة في التنزيلات 🔍')
+                          : currentView === 'home'
+                          ? 'الشاشة الرئيسية خالية من الفيديوهات 📺'
                           : 'لم يتم العثور على أي فيديوهات مطابقة'
                       ) : (
                         currentView === 'history' 
@@ -964,6 +1855,10 @@ export default function App() {
                           ? 'No liked videos yet'
                           : currentView === 'uploads'
                           ? 'No uploaded videos yet'
+                          : currentView === 'downloads'
+                          ? (downloads.length === 0 ? 'Your downloads folder is empty 📥' : 'No downloaded videos matched your search query 🔍')
+                          : currentView === 'home'
+                          ? 'Home screen is empty of videos 📺'
                           : 'No videos matched your filters'
                       )}
                     </p>
@@ -977,6 +1872,12 @@ export default function App() {
                           ? 'اضغط على زر الإعجاب (👍) أثناء مشاهدة أي فيديو ليظهر في هذه القائمة.'
                           : currentView === 'uploads'
                           ? 'اضغط على زر "رفع فيديو" 📤 في الشريط العلوي لنشر فيديوهاتك على المنصة.'
+                          : currentView === 'downloads'
+                          ? (downloads.length === 0
+                            ? 'اضغط على زر "تنزيل" 📥 أثناء تشغيل أي فيديو أو من بطاقة الفيديو لحفظه والاستمتاع به.'
+                            : 'حاول إدخال كلمات بحث مختلفة أو مسح حقل البحث لاستعادة جميع الفيديوهات المنزلة.')
+                          : currentView === 'home'
+                          ? 'استخدم شريط البحث في الأعلى لاستكشاف فيديوهات حية من الويب أو قم برفع فيديوهات جديدة لتبدأ ظهورها هنا.'
                           : 'حاول إعادة تعيين كلمات البحث، أو اختيار تصنيف آخر، أو رفع ملف فيديو جديد.'
                       ) : (
                         currentView === 'history' 
@@ -987,6 +1888,12 @@ export default function App() {
                           ? 'Click the like button (👍) on any video to add it to this list.'
                           : currentView === 'uploads'
                           ? 'Click the "Upload" button 📤 in the top bar to publish your own videos on the platform.'
+                          : currentView === 'downloads'
+                          ? (downloads.length === 0
+                            ? 'Click the "Download" button 📥 on any video player or video card to save it for offline view.'
+                            : 'Try typing different keywords or clear your offline search query to see all downloaded videos.')
+                          : currentView === 'home'
+                          ? 'Use the search bar above to discover live web videos, or upload your own videos to see them here.'
                           : 'Try resetting active search terms, choosing another category chip, or uploading a new file.'
                       )}
                     </p>
@@ -1114,6 +2021,12 @@ export default function App() {
                           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                             {groupVideos.map((video) => {
                               const historyItem = history.find(item => item.videoId === video.id);
+                              const isOwnVideo = currentUser && (
+                                video.channelId === currentUser.username ||
+                                video.channelId === 'user_channel' ||
+                                video.channelId === 'chan-current-mock' ||
+                                video.channelId === 'usr-current'
+                              );
                               return (
                                 <VideoCard
                                   key={video.id}
@@ -1122,13 +2035,18 @@ export default function App() {
                                   watchedAt={historyItem?.watchedAt}
                                   progress={historyItem?.progress}
                                   onRemove={() => handleRemoveFromHistory(video.id)}
+                                  onDelete={isOwnVideo ? () => handleDeleteVideo(video.id) : undefined}
                                   isInWatchLater={watchLater.includes(video.id)}
                                   onToggleWatchLater={() => handleToggleWatchLater(video.id)}
+                                  isInDownloads={downloads.includes(video.id)}
+                                  onToggleDownload={() => handleToggleDownload(video.id)}
                                   onChannelClick={(chanId) => {
                                     setActiveChannelFilter(chanId);
                                     setView('channel');
                                   }}
                                   onShare={handleShare}
+                                  onWatchAgain={() => handleWatchAgain(video)}
+                                  language={settings.language}
                                 />
                               );
                             })}
@@ -1142,6 +2060,12 @@ export default function App() {
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                   {filteredVideos.map((video) => {
                     const historyItem = history.find(item => item.videoId === video.id);
+                    const isOwnVideo = currentUser && (
+                      video.channelId === currentUser.username ||
+                      video.channelId === 'user_channel' ||
+                      video.channelId === 'chan-current-mock' ||
+                      video.channelId === 'usr-current'
+                    );
                     return (
                       <VideoCard
                         key={video.id}
@@ -1154,15 +2078,21 @@ export default function App() {
                             ? () => handleRemoveFromHistory(video.id) 
                             : currentView === 'watch-later'
                             ? () => handleToggleWatchLater(video.id)
+                            : currentView === 'downloads'
+                            ? () => handleToggleDownload(video.id)
                             : undefined
                         }
+                        onDelete={isOwnVideo ? () => handleDeleteVideo(video.id) : undefined}
                         isInWatchLater={watchLater.includes(video.id)}
                         onToggleWatchLater={() => handleToggleWatchLater(video.id)}
+                        isInDownloads={downloads.includes(video.id)}
+                        onToggleDownload={() => handleToggleDownload(video.id)}
                         onChannelClick={(chanId) => {
                           setActiveChannelFilter(chanId);
                           setView('channel');
                         }}
                         onShare={handleShare}
+                        language={settings.language}
                       />
                     );
                   })}
@@ -1180,6 +2110,7 @@ export default function App() {
         <UploadModal
           onClose={() => setShowUploadModal(false)}
           onUploadSuccess={handleUploadSuccess}
+          currentUser={currentUser}
         />
       )}
 
@@ -1199,6 +2130,16 @@ export default function App() {
           onClose={() => setShowAuthModal(false)}
           onLoginSuccess={(user) => {
             setCurrentUser(user);
+            setVideos(prev => prev.map(v => {
+              if (v.channelId === user.username || v.channelId === 'user_channel' || v.channelId === 'chan-current-mock' || v.channelId === 'usr-current') {
+                return {
+                  ...v,
+                  channelName: user.displayName,
+                  channelAvatar: user.avatarUrl
+                };
+              }
+              return v;
+            }));
           }}
           currentUser={currentUser}
           language={settings.language}

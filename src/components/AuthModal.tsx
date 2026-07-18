@@ -416,22 +416,29 @@ export default function AuthModal({
                   </div>
                 </div>
 
-                {/* Upload or Custom Image URL option */}
-                <div className="flex flex-col gap-1.5">
-                  <div className="flex justify-between items-center">
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      className="cursor-pointer text-[11px] text-indigo-600 hover:text-indigo-800 font-bold flex items-center gap-1 hover:underline"
-                    >
-                      <Upload className="w-3 h-3" />
-                      <span>{t.avatarUpload}</span>
-                    </button>
+                {/* Prominent Upload from computer zone */}
+                <div 
+                  onClick={() => fileInputRef.current?.click()}
+                  className="cursor-pointer border-2 border-dashed border-gray-200 hover:border-indigo-500 hover:bg-indigo-50/10 rounded-2xl p-4 text-center transition-all group flex flex-col items-center justify-center gap-1.5"
+                >
+                  <div className="p-2 rounded-full bg-gray-50 group-hover:bg-indigo-50 transition-colors text-gray-400 group-hover:text-indigo-600">
+                    <Upload className="w-5 h-5" />
+                  </div>
+                  <p className="text-xs font-bold text-gray-700 group-hover:text-indigo-600">
+                    {t.avatarUpload}
+                  </p>
+                  <p className="text-[10px] text-gray-400 font-sans">
+                    {isArabic ? 'يدعم صور JPG, PNG, WebP حتى 2 ميجابايت' : 'Supports JPG, PNG, WebP up to 2MB'}
+                  </p>
+                </div>
 
+                {/* Custom Image URL option */}
+                <div className="flex flex-col gap-1.5">
+                  <div className="flex justify-end">
                     <button
                       type="button"
                       onClick={() => setShowCustomUrlInput(!showCustomUrlInput)}
-                      className="cursor-pointer text-[11px] text-gray-500 hover:text-gray-800 font-bold hover:underline"
+                      className="cursor-pointer text-[11px] text-gray-500 hover:text-gray-800 font-semibold hover:underline"
                     >
                       <span>{showCustomUrlInput ? (isArabic ? 'إخفاء الرابط' : 'Hide URL input') : t.avatarUrlPlaceholder}</span>
                     </button>
@@ -542,59 +549,22 @@ export default function AuthModal({
                   <div className="space-y-2 text-start">
                     {/* Account 1 */}
                     <button
+                      type="button"
                       onClick={() => handleSelectOauthUser(
-                        'Lead System Architect', 
+                        'My Channel', 
                         'myahia69@gmail.com', 
-                        'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=150&h=150&q=80'
+                        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80'
                       )}
                       className="cursor-pointer w-full flex items-center gap-3 p-3 border border-gray-150 rounded-2xl hover:bg-gray-50 hover:border-gray-300 transition-all text-xs"
                     >
                       <img 
-                        src="https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=150&h=150&q=80" 
+                        src="https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80" 
                         alt="Default" 
                         className="w-8 h-8 rounded-full object-cover"
                       />
                       <div className="flex-1 min-w-0">
-                        <p className="font-bold text-gray-900 truncate">Lead System Architect</p>
+                        <p className="font-bold text-gray-900 truncate">My Channel</p>
                         <p className="font-mono text-gray-400 text-[10px] truncate">myahia69@gmail.com</p>
-                      </div>
-                    </button>
-
-                    {/* Account 2 */}
-                    <button
-                      onClick={() => handleSelectOauthUser(
-                        'Sarah Jenkins', 
-                        'sarah.jenkins@gmail.com', 
-                        'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&h=150&q=80'
-                      )}
-                      className="cursor-pointer w-full flex items-center gap-3 p-3 border border-gray-150 rounded-2xl hover:bg-gray-50 hover:border-gray-300 transition-all text-xs"
-                    >
-                      <img 
-                        src="https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&h=150&q=80" 
-                        alt="Sarah" 
-                        className="w-8 h-8 rounded-full object-cover"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-bold text-gray-900 truncate">Sarah Jenkins</p>
-                        <p className="font-mono text-gray-400 text-[10px] truncate">sarah.jenkins@gmail.com</p>
-                      </div>
-                    </button>
-
-                    {/* Custom profile connection inside Google simulated prompt */}
-                    <button
-                      onClick={() => handleSelectOauthUser(
-                        t.simulatedGoogleUser, 
-                        'user.google@gmail.com', 
-                        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80'
-                      )}
-                      className="cursor-pointer w-full flex items-center gap-3 p-3 border border-dashed border-gray-300 rounded-2xl hover:bg-gray-50 hover:border-gray-400 transition-all text-xs"
-                    >
-                      <div className="w-8 h-8 rounded-full bg-red-100 flex items-center justify-center text-red-600 font-bold text-sm shrink-0">
-                        G
-                      </div>
-                      <div className="flex-1 text-start">
-                        <p className="font-bold text-gray-800">{t.simulatedGoogleUser}</p>
-                        <p className="font-mono text-gray-400 text-[10px]">user.google@gmail.com</p>
                       </div>
                     </button>
                   </div>
@@ -602,10 +572,11 @@ export default function AuthModal({
                   /* Facebook option click-through */
                   <div className="space-y-3">
                     <button
+                      type="button"
                       onClick={() => handleSelectOauthUser(
-                        'Facebook User', 
-                        'user.facebook@fb.com', 
-                        'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=150&h=150&q=80'
+                        'My Channel', 
+                        'myahia69@gmail.com', 
+                        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80'
                       )}
                       className="cursor-pointer w-full flex items-center justify-center gap-2.5 bg-[#1877F2] hover:bg-[#166FE5] text-white font-bold text-xs py-3 px-4 border border-transparent rounded-xl shadow transition-all active:scale-98"
                     >

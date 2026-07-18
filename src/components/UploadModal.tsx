@@ -1,13 +1,14 @@
 import React, { useState } from 'react';
 import { X, Upload, Check, Loader2, Sparkles, AlertCircle } from 'lucide-react';
-import { Video } from '../types';
+import { Video, User } from '../types';
 
 interface UploadModalProps {
   onClose: () => void;
   onUploadSuccess: (newVideo: Video) => void;
+  currentUser?: User | null;
 }
 
-export default function UploadModal({ onClose, onUploadSuccess }: UploadModalProps) {
+export default function UploadModal({ onClose, onUploadSuccess, currentUser }: UploadModalProps) {
   const [dragActive, setDragActive] = useState(false);
   const [fileSelected, setFileSelected] = useState<File | null>(null);
   const [uploadMethod, setUploadMethod] = useState<'file' | 'link'>('file');
@@ -160,9 +161,9 @@ export default function UploadModal({ onClose, onUploadSuccess }: UploadModalPro
           views: 0,
           uploadedAt: 'Just now',
           category,
-          channelId: 'chan-current-mock',
-          channelName: 'Lead System Architect',
-          channelAvatar: 'https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?auto=format&fit=crop&w=150&h=150&q=80',
+          channelId: currentUser?.username || 'user_channel',
+          channelName: currentUser?.displayName || 'My Channel',
+          channelAvatar: currentUser?.avatarUrl || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&h=150&q=80',
           likes: 0,
           dislikes: 0,
           likeStatus: 'none',

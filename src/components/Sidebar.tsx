@@ -1,5 +1,5 @@
 import React from 'react';
-import { Home, Tv, Heart, Upload, Database, Users, HelpCircle, History, Clock, BarChart3, Keyboard, Zap } from 'lucide-react';
+import { Home, Tv, Heart, Upload, Database, Users, HelpCircle, History, Clock, BarChart3, Keyboard, Zap, Download, Library } from 'lucide-react';
 import { Channel } from '../types';
 
 interface SidebarProps {
@@ -152,6 +152,38 @@ export default function Sidebar({
           </button>
 
           <button
+            id="nav-downloads"
+            onClick={() => {
+              onChannelFilter(null, false);
+              setView('downloads');
+              onCloseMobile();
+            }}
+            className={buttonClass(currentView === 'downloads')}
+            title={language === 'ar' ? 'التنزيلات وحفظ الفيديوهات' : 'Downloads & Saved Videos'}
+          >
+            <Download className={`${collapsed ? 'w-5 h-5' : 'w-4 h-4'} text-emerald-600 shrink-0`} />
+            <span className={collapsed ? 'text-[9px] scale-95 leading-tight font-medium' : 'truncate'}>
+              {collapsed ? (language === 'ar' ? 'التنزيلات' : 'Saved') : (language === 'ar' ? 'التنزيلات والحفظ' : 'Downloads')}
+            </span>
+          </button>
+
+          <button
+            id="nav-playlists"
+            onClick={() => {
+              onChannelFilter(null, false);
+              setView('playlists');
+              onCloseMobile();
+            }}
+            className={buttonClass(currentView === 'playlists')}
+            title={language === 'ar' ? 'قوائم التشغيل المخصصة' : 'Custom Playlists'}
+          >
+            <Library className={`${collapsed ? 'w-5 h-5' : 'w-4 h-4'} text-purple-600 shrink-0`} />
+            <span className={collapsed ? 'text-[9px] scale-95 leading-tight font-medium' : 'truncate'}>
+              {collapsed ? (language === 'ar' ? 'القوائم' : 'Playlists') : (language === 'ar' ? 'قوائم التشغيل' : 'Custom Playlists')}
+            </span>
+          </button>
+
+          <button
             id="nav-analytics"
             onClick={() => {
               onChannelFilter(null, false);
@@ -189,7 +221,7 @@ export default function Sidebar({
           {!collapsed ? (
             <div className="flex items-center justify-between px-3">
               <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider font-mono">
-                Subscriptions
+                {language === 'ar' ? 'الاشتراكات' : 'Subscriptions'}
               </h3>
               <span className="text-[10px] bg-gray-150 text-gray-600 px-1.5 py-0.5 rounded font-mono border border-gray-200">
                 {subscribedChannels.length}
@@ -197,7 +229,9 @@ export default function Sidebar({
             </div>
           ) : (
             <div className="border-t border-gray-100 my-2 pt-2 text-center">
-              <span className="text-[9px] font-mono text-gray-400 font-bold">SUBS</span>
+              <span className="text-[9px] font-mono text-gray-400 font-bold">
+                {language === 'ar' ? 'اشتراك' : 'SUBS'}
+              </span>
             </div>
           )}
 
@@ -205,7 +239,9 @@ export default function Sidebar({
             {subscribedChannels.length === 0 ? (
               !collapsed && (
                 <p className="text-xs text-gray-400 px-3 py-2 italic font-sans">
-                  No subscriptions yet. Subscribe to channels in the watch feed!
+                  {language === 'ar' 
+                    ? 'لا توجد اشتراكات بعد. اشترك في قنوات من صفحة المشاهدة!' 
+                    : 'No subscriptions yet. Subscribe to channels in the watch feed!'}
                 </p>
               )
             ) : (
@@ -213,7 +249,6 @@ export default function Sidebar({
                 <button
                   key={channel.id}
                   onClick={() => {
-                    setView('home');
                     onChannelFilter(channel.id);
                     onCloseMobile();
                   }}

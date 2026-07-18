@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Search, Upload, Bell, Menu, Sparkles, User, Database, Settings, Mic, Keyboard } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Search, Upload, Bell, Menu, Sparkles, User, Database, Settings, Mic, Keyboard, Wifi, WifiOff } from 'lucide-react';
 import { User as UserType } from '../types';
 import VirtualKeyboard from './VirtualKeyboard';
 
@@ -39,6 +39,22 @@ export default function Navbar({
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showKeyboard, setShowKeyboard] = useState(false);
   const [isListening, setIsListening] = useState(false);
+  const [isOnline, setIsOnline] = useState(() => {
+    return typeof navigator !== 'undefined' ? navigator.onLine : true;
+  });
+
+  useEffect(() => {
+    const handleOnline = () => setIsOnline(true);
+    const handleOffline = () => setIsOnline(false);
+
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   const handleVoiceSearch = () => {
     const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
@@ -193,6 +209,31 @@ export default function Navbar({
 
       {/* Right side: Actions, notifications, and profiles */}
       <div className="flex items-center gap-3">
+        {/* Network Status Badge */}
+        {!isOnline ? (
+          <div 
+            id="network-status-offline"
+            className="flex items-center gap-1.5 bg-red-50 text-red-600 text-[10px] font-bold px-2.5 py-1 rounded-full border border-red-200 shadow-sm shrink-0"
+            title={language === 'ar' ? 'غير متصل بالشبكة' : 'Offline Mode'}
+          >
+            <span className="relative flex h-2 w-2">
+              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75"></span>
+              <span className="relative inline-flex rounded-full h-2 w-2 bg-red-600"></span>
+            </span>
+            <WifiOff className="w-3 h-3 text-red-500" />
+            <span>{language === 'ar' ? 'أوفلاين' : 'Offline'}</span>
+          </div>
+        ) : (
+          <div 
+            id="network-status-online"
+            className="hidden md:flex items-center gap-1 bg-emerald-50 text-emerald-700 text-[10px] font-bold px-2 py-1 rounded-full border border-emerald-150 shrink-0"
+            title={language === 'ar' ? 'متصل بالشبكة' : 'Online'}
+          >
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-500"></span>
+            <span>{language === 'ar' ? 'متصل' : 'Online'}</span>
+          </div>
+        )}
+
         {/* Developer Blueprint Link */}
         <button
           id="btn-dev-console"

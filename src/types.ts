@@ -43,3 +43,11 @@ export interface Comment {
 }
 
 export type Category = 'All' | 'Tech' | 'Design' | 'Nature' | 'Music' | 'Coding' | 'Gaming';
+
+export interface Playlist {
+  id: string;
+  name: string;
+  description: string;
+  videoIds: string[];
+  createdAt: string;
+}

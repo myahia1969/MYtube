@@ -3,7 +3,7 @@ import {
   ArrowLeft, CheckCircle2, Tv, Users, Calendar, BarChart3, 
   Sparkles, Loader2, Play, Info, Heart, ArrowRight, Award, MessageSquare 
 } from 'lucide-react';
-import { Channel, Video } from '../types';
+import { Channel, Video, User } from '../types';
 import { motion } from 'motion/react';
 import VideoCard from './VideoCard';
 
@@ -16,6 +16,8 @@ interface ChannelProfileViewProps {
   onVideoClick: (video: Video) => void;
   onBackToHome: () => void;
   onShare?: (video: Video) => void;
+  currentUser?: User | null;
+  onDeleteVideo?: (videoId: string) => void;
 }
 
 interface AIChannelInsights {
@@ -34,6 +36,8 @@ export default function ChannelProfileView({
   onVideoClick,
   onBackToHome,
   onShare,
+  currentUser,
+  onDeleteVideo,
 }: ChannelProfileViewProps) {
   const isArabic = language === 'ar';
   
@@ -42,13 +46,26 @@ export default function ChannelProfileView({
   const [loadingInsights, setLoadingInsights] = useState(false);
   const [errorInsights, setErrorInsights] = useState<string | null>(null);
 
-  const channel = channels.find(c => c.id === channelId) || {
+  const isOwnChannel = currentUser && (
+    channelId === currentUser.username || 
+    channelId === 'user_channel' || 
+    channelId === 'chan-current-mock' ||
+    channelId === 'usr-current'
+  );
+
+  const channel = isOwnChannel ? {
+    id: channelId,
+    name: currentUser.displayName,
+    avatarUrl: currentUser.avatarUrl,
+    subscribersCount: 2450,
+    isSubscribed: false,
+  } : (channels.find(c => c.id === channelId) || {
     id: channelId,
     name: isArabic ? 'قناة غير معروفة' : 'Unknown Channel',
     avatarUrl: 'https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&h=150&q=80',
     subscribersCount: 0,
     isSubscribed: false,
-  };
+  });
 
   // Get all videos published by this channel
   const channelVideos = videos.filter(v => v.channelId === channelId);
@@ -268,6 +285,8 @@ export default function ChannelProfileView({
                     video={video}
                     onClick={() => onVideoClick(video)}
                     onShare={onShare}
+                    onDelete={isOwnChannel && onDeleteVideo ? () => onDeleteVideo(video.id) : undefined}
+                    language={language}
                   />
                 ))}
               </div>
