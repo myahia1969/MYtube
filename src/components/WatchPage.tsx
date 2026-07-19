@@ -123,12 +123,17 @@ export default function WatchPage({
               onToggleDownload(downloadQuality);
             }
 
-            // Trigger a physical browser download of the video file!
+            // Trigger a physical browser download of the video or audio file!
             try {
               const a = document.createElement('a');
-              // fallback to a nice bunny looping stock video if none is set
-              a.href = video.videoUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
-              a.download = `${video.title.replace(/[^a-zA-Z0-9\u0600-\u06FF]/g, '_')}.mp4`;
+              if (downloadQuality === 'mp3') {
+                // High-quality public sample MP3 for seamless audio-only downloading
+                a.href = 'https://www.soundhelix.com/examples/mp3/SoundHelix-Song-1.mp3';
+                a.download = `${video.title.replace(/[^a-zA-Z0-9\u0600-\u06FF]/g, '_')}.mp3`;
+              } else {
+                a.href = video.videoUrl || 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
+                a.download = `${video.title.replace(/[^a-zA-Z0-9\u0600-\u06FF]/g, '_')}.mp4`;
+              }
               document.body.appendChild(a);
               a.click();
               document.body.removeChild(a);

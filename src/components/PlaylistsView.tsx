@@ -19,6 +19,13 @@ interface PlaylistsViewProps {
   downloads: string[];
   onVideoSelect: (video: Video) => void;
   language?: 'en' | 'ar';
+  askConfirmation?: (options: {
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    confirmText?: string;
+    cancelText?: string;
+  }) => void;
 }
 
 export default function PlaylistsView({
@@ -32,6 +39,7 @@ export default function PlaylistsView({
   downloads,
   onVideoSelect,
   language = 'en',
+  askConfirmation,
 }: PlaylistsViewProps) {
   const [selectedPlaylistId, setSelectedPlaylistId] = useState<string | null>(null);
   
@@ -172,10 +180,25 @@ export default function PlaylistsView({
 
   const handleDeleteClick = (playlistId: string, e: React.MouseEvent) => {
     e.stopPropagation(); // prevent opening
+    const confirmTitle = language === 'ar' ? 'حذف قائمة التشغيل' : 'Delete Playlist';
     const confirmMsg = language === 'ar'
       ? 'هل أنت متأكد من رغبتك في حذف قائمة التشغيل هذه؟'
       : 'Are you sure you want to delete this playlist?';
-    if (confirm(confirmMsg)) {
+    
+    if (askConfirmation) {
+      askConfirmation({
+        title: confirmTitle,
+        message: confirmMsg,
+        onConfirm: () => {
+          onDeletePlaylist(playlistId);
+          if (selectedPlaylistId === playlistId) {
+            setSelectedPlaylistId(null);
+          }
+        },
+        confirmText: language === 'ar' ? 'نعم، احذف القائمة' : 'Yes, delete playlist',
+        cancelText: language === 'ar' ? 'إلغاء' : 'Cancel'
+      });
+    } else if (confirm(confirmMsg)) {
       onDeletePlaylist(playlistId);
       if (selectedPlaylistId === playlistId) {
         setSelectedPlaylistId(null);

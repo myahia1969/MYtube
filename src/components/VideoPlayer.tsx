@@ -1,7 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { 
   Play, Pause, Volume2, VolumeX, Maximize, Minimize, 
-  RotateCcw, RotateCw, Settings, Activity, Clock
+  RotateCcw, RotateCw, Settings, Activity, Clock, Repeat
 } from 'lucide-react';
 import { useVideoKeyboardShortcuts } from '../hooks/useVideoKeyboardShortcuts';
 
@@ -28,6 +28,7 @@ export default function VideoPlayer({ videoUrl, thumbnailUrl, onProgressUpdate, 
   const [showControls, setShowControls] = useState(true);
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   const [showQualityMenu, setShowQualityMenu] = useState(false);
+  const [isLooping, setIsLooping] = useState(false);
 
   // Load settings and apply default playback speed on mount / load
   useEffect(() => {
@@ -221,13 +222,146 @@ export default function VideoPlayer({ videoUrl, thumbnailUrl, onProgressUpdate, 
     
     return null;
   };
-  const youtubeId = getYoutubeId(videoUrl);
 
-  if (youtubeId) {
+  const getSourceInfo = (url: string) => {
+    if (!url) return { type: 'generic' as const };
+    const clean = url.trim();
+
+    // 1. YouTube
+    const ytReg = /^.*(youtu.be\/|v\/|u\/\w\/|embed\/|watch\?v=|\&v=)([^#\&\?]*).*/;
+    const ytMatch = clean.match(ytReg);
+    if (ytMatch && ytMatch[2].length === 11) {
+      return { 
+        type: 'youtube' as const, 
+        embedUrl: `https://www.youtube-nocookie.com/embed/${ytMatch[2]}?autoplay=1&rel=0&modestbranding=1&enablejsapi=1${isLooping ? `&loop=1&playlist=${ytMatch[2]}` : ''}` 
+      };
+    }
+    if (clean.includes('/shorts/')) {
+      const parts = clean.split('/shorts/');
+      if (parts[1]) {
+        const id = parts[1].split(/[?#&]/)[0];
+        if (id.length === 11) {
+          return { 
+            type: 'youtube' as const, 
+            embedUrl: `https://www.youtube-nocookie.com/embed/${id}?autoplay=1&rel=0&modestbranding=1&enablejsapi=1${isLooping ? `&loop=1&playlist=${id}` : ''}` 
+          };
+        }
+      }
+    }
+
+    // 2. Vimeo
+    const vimeoReg = /(?:vimeo\.com\/|player\.vimeo\.com\/video\/)([0-9]+)/;
+    const vimeoMatch = clean.match(vimeoReg);
+    if (vimeoMatch && vimeoMatch[1]) {
+      return {
+        type: 'vimeo' as const,
+        embedUrl: `https://player.vimeo.com/video/${vimeoMatch[1]}?autoplay=1&badge=0&byline=0&portrait=0&title=0${isLooping ? '&loop=1' : ''}`
+      };
+    }
+
+    // 3. DailyMotion
+    const dmReg = /(?:dailymotion\.com\/video\/|dai\.ly\/)([a-zA-Z0-9]+)/;
+    const dmMatch = clean.match(dmReg);
+    if (dmMatch && dmMatch[1]) {
+      return {
+        type: 'dailymotion' as const,
+        embedUrl: `https://www.dailymotion.com/embed/video/${dmMatch[1]}?autoplay=1`
+      };
+    }
+
+    // 4. TikTok
+    const tiktokReg = /tiktok\.com\/@.*?\/video\/([0-9]+)/;
+    const tiktokMatch = clean.match(tiktokReg);
+    if (tiktokMatch && tiktokMatch[1]) {
+      return {
+        type: 'tiktok' as const,
+        embedUrl: `https://www.tiktok.com/embed/v2/${tiktokMatch[1]}`
+      };
+    }
+
+    // 5. Twitch
+    const twitchReg = /twitch\.tv\/videos\/([0-9]+)/;
+    const twitchMatch = clean.match(twitchReg);
+    if (twitchMatch && twitchMatch[1]) {
+      const parentHost = typeof window !== 'undefined' ? window.location.hostname : 'localhost';
+      return {
+        type: 'twitch' as const,
+        embedUrl: `https://player.twitch.tv/?video=${twitchMatch[1]}&parent=${parentHost}&autoplay=true&muted=false`
+      };
+    }
+
+    // 6. SoundCloud
+    if (clean.includes('soundcloud.com')) {
+      return {
+        type: 'soundcloud' as const,
+        embedUrl: `https://w.soundcloud.com/player/?url=${encodeURIComponent(clean)}&color=%23ff5500&auto_play=true&hide_related=false&show_comments=true&show_user=true&show_reposts=false&show_teaser=true`
+      };
+    }
+
+    // 7. Facebook
+    if (clean.includes('facebook.com') || clean.includes('fb.watch')) {
+      return {
+        type: 'facebook' as const,
+        embedUrl: `https://www.facebook.com/plugins/video.php?href=${encodeURIComponent(clean)}&show_text=0&autoplay=1`
+      };
+    }
+
+    // 8. Instagram
+    if (clean.includes('instagram.com')) {
+      const match = clean.match(/(?:p|reel|tv)\/([a-zA-Z0-9_-]+)/);
+      const id = match ? match[1] : '';
+      return {
+        type: 'instagram' as const,
+        embedUrl: id ? `https://www.instagram.com/p/${id}/embed` : clean
+      };
+    }
+
+    // 9. Twitter / X
+    if (clean.includes('twitter.com') || clean.includes('x.com')) {
+      return {
+        type: 'twitter' as const,
+        embedUrl: clean
+      };
+    }
+
+    // 10. Direct Video and Audio files
+    const isDirect = clean.match(/\.(mp4|webm|ogg|mov|m4v|m3u8|mp3|wav|aac|m4a|flac)(?:\?|$)/i) || 
+                     clean.startsWith('blob:') || 
+                     clean.startsWith('data:video') || 
+                     clean.startsWith('data:audio');
+    if (isDirect) {
+      return { type: 'direct' as const };
+    }
+
+    // 11. Generic website
+    return { 
+      type: 'generic' as const, 
+      embedUrl: clean, 
+      label: 'External Web Media' 
+    };
+  };
+
+  const [appLanguage, setAppLanguage] = useState<'ar' | 'en'>('en');
+  useEffect(() => {
+    try {
+      const saved = localStorage.getItem('metatube_settings');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.language) {
+          setAppLanguage(parsed.language);
+        }
+      }
+    } catch (e) {}
+  }, []);
+
+  const source = getSourceInfo(videoUrl);
+
+  // If we can play via iframe embed (YouTube, Vimeo, Dailymotion, TikTok, Twitch, SoundCloud, Facebook, Instagram, Twitter, etc.)
+  if (source.type !== 'direct' && source.embedUrl) {
     return (
       <div className="relative w-full aspect-video bg-black rounded-2xl overflow-hidden shadow-2xl border border-zinc-900">
         <iframe
-          src={`https://www.youtube-nocookie.com/embed/${youtubeId}?autoplay=1&rel=0&modestbranding=1&enablejsapi=1`}
+          src={source.embedUrl}
           title="Video Player"
           frameBorder="0"
           allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
@@ -254,7 +388,8 @@ export default function VideoPlayer({ videoUrl, thumbnailUrl, onProgressUpdate, 
         onDurationChange={handleDurationChange}
         onPlay={() => setIsPlaying(true)}
         onPause={() => setIsPlaying(false)}
-        onEnded={onVideoEnded}
+        onEnded={isLooping ? undefined : onVideoEnded}
+        loop={isLooping}
         className="w-full h-full object-contain cursor-pointer"
         playsInline
       />
@@ -341,6 +476,22 @@ export default function VideoPlayer({ videoUrl, thumbnailUrl, onProgressUpdate, 
           </div>
 
           <div className="flex items-center gap-4 relative">
+            {/* Loop Toggle */}
+            <button
+              onClick={() => setIsLooping(!isLooping)}
+              className={`p-1.5 rounded transition-all duration-200 border flex items-center justify-center gap-1 ${
+                isLooping 
+                  ? 'bg-red-600 border-red-500 text-white shadow-[0_0_8px_rgba(239,68,68,0.5)]' 
+                  : 'bg-zinc-900/60 border-zinc-800 text-zinc-300 hover:text-white hover:bg-zinc-850'
+              }`}
+              title={isLooping ? (appLanguage === 'ar' ? 'إلغاء التكرار' : 'Disable Loop') : (appLanguage === 'ar' ? 'تكرار الفيديو' : 'Enable Loop')}
+            >
+              <Repeat className={`w-3.5 h-3.5 ${isLooping ? 'animate-pulse' : ''}`} />
+              <span className="text-[10px] font-semibold select-none">
+                {appLanguage === 'ar' ? 'تكرار' : 'Loop'}
+              </span>
+            </button>
+
             {/* Playback speed selector */}
             <div className="relative">
               <button

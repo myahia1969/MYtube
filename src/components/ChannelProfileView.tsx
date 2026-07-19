@@ -68,7 +68,17 @@ export default function ChannelProfileView({
   });
 
   // Get all videos published by this channel
-  const channelVideos = videos.filter(v => v.channelId === channelId);
+  const channelVideos = videos.filter(v => {
+    if (isOwnChannel && currentUser) {
+      return (
+        v.channelId === currentUser.username ||
+        v.channelId === 'user_channel' ||
+        v.channelId === 'chan-current-mock' ||
+        v.channelId === 'usr-current'
+      );
+    }
+    return v.channelId === channelId;
+  });
 
   // Define dynamic backdrop gradient based on channel name length
   const colors = [

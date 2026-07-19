@@ -16,6 +16,8 @@ import ShortcutsHelpModal from './components/ShortcutsHelpModal';
 import ChannelProfileView from './components/ChannelProfileView';
 import ShortsView from './components/ShortsView';
 import PlaylistsView from './components/PlaylistsView';
+import ConfirmModal from './components/ConfirmModal';
+import StoriesSection from './components/StoriesSection';
 import { Sparkles, Terminal, LogIn, LogOut, ArrowUp, Zap, HelpCircle, Clock, HardDrive, Trash2, Sliders, AlertTriangle, TrendingDown, RefreshCw, CheckCircle2, Search, X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
@@ -62,9 +64,8 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as Video[];
-        // Filter out any previous demo/seed videos starting with 'vid-' or 'short-'
-        const filtered = parsed.filter(v => !v.id.startsWith('vid-') && !v.id.startsWith('short-'));
-        return filtered;
+        // Keep all videos saved by the user (including uploads, search results, etc.)
+        return parsed;
       } catch (e) {
         return INITIAL_VIDEOS;
       }
@@ -77,9 +78,8 @@ export default function App() {
     if (saved) {
       try {
         const parsed = JSON.parse(saved) as Comment[];
-        // Filter out any previous demo comments starting with 'comm-' or 'short-comm-'
-        const filtered = parsed.filter(c => !c.id.startsWith('comm-') && !c.id.startsWith('short-comm-'));
-        return filtered;
+        // Keep all comments saved by the user
+        return parsed;
       } catch (e) {
         return INITIAL_COMMENTS;
       }
@@ -107,10 +107,7 @@ export default function App() {
         const parsed = JSON.parse(saved);
         if (parsed.loggedOut) return null;
         if (parsed.user) {
-          // If previous user was a demo user, return the updated CURRENT_USER
-          if (parsed.user.id === 'usr-current') {
-            return CURRENT_USER;
-          }
+          // If the user customized their account or profile details, preserve them
           return parsed.user;
         }
       } catch (e) {
@@ -236,6 +233,7 @@ export default function App() {
   });
 
   const [historySort, setHistorySort] = useState<'recent' | 'oldest' | 'progress'>('recent');
+  const [downloadsSort, setDownloadsSort] = useState<'date' | 'size' | 'quality'>('date');
 
   // Navigation states
   const [currentView, setView] = useState<string>('home'); // 'home' | 'watch' | 'uploads' | 'liked' | 'dev-console' | 'history'
@@ -341,6 +339,41 @@ export default function App() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
   const [showShortcutsHelpModal, setShowShortcutsHelpModal] = useState(false);
+
+  // Custom premium confirm modal state
+  const [confirmModalState, setConfirmModalState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    confirmText?: string;
+    cancelText?: string;
+  }>({
+    isOpen: false,
+    title: '',
+    message: '',
+    onConfirm: () => {},
+  });
+
+  const askConfirmation = (options: {
+    title: string;
+    message: string;
+    onConfirm: () => void;
+    confirmText?: string;
+    cancelText?: string;
+  }) => {
+    setConfirmModalState({
+      isOpen: true,
+      title: options.title,
+      message: options.message,
+      onConfirm: () => {
+        options.onConfirm();
+        setConfirmModalState(prev => ({ ...prev, isOpen: false }));
+      },
+      confirmText: options.confirmText,
+      cancelText: options.cancelText,
+    });
+  };
 
   // App settings state
   const [settings, setSettings] = useState<AppSettings>(() => {
@@ -748,8 +781,19 @@ export default function App() {
 
   // Reset all application data and restore seeds
   const handleResetAllData = () => {
-    localStorage.clear();
-    window.location.reload();
+    const isArabic = settings.language === 'ar';
+    askConfirmation({
+      title: isArabic ? 'إعادة ضبط المصنع' : 'Restore Factory Settings',
+      message: isArabic 
+        ? 'هل أنت متأكد من رغبتك في إعادة ضبط جميع الإعدادات وحذف كل الفيديوهات المرفوعة والتعليقات؟ سيتم إعادة تحميل الصفحة.' 
+        : 'Are you sure you want to restore factory settings? This will clear all custom uploads, comments, and history. The page will reload.',
+      onConfirm: () => {
+        localStorage.clear();
+        window.location.reload();
+      },
+      confirmText: isArabic ? 'إعادة ضبط' : 'Restore Settings',
+      cancelText: isArabic ? 'إلغاء' : 'Cancel'
+    });
   };
 
   // Upload video handler
@@ -761,42 +805,49 @@ export default function App() {
   // Delete video handler
   const handleDeleteVideo = (videoId: string) => {
     const isArabic = settings.language === 'ar';
+    const confirmTitle = isArabic ? 'تأكيد حذف الفيديو' : 'Confirm Video Deletion';
     const confirmMessage = isArabic 
       ? 'هل أنت متأكد من رغبتك في حذف هذا الفيديو نهائياً من قناتك؟' 
       : 'Are you sure you want to permanently delete this video from your channel?';
     
-    if (window.confirm(confirmMessage)) {
-      // 1. Delete from videos state
-      setVideos(prev => prev.filter(v => v.id !== videoId));
-      
-      // 2. Delete from history state
-      setHistory(prev => prev.filter(h => h.videoId !== videoId));
-      
-      // 3. Delete from watch later state
-      setWatchLater(prev => prev.filter(id => id !== videoId));
-      
-      // 4. Delete from downloads state
-      setDownloads(prev => prev.filter(id => id !== videoId));
-      
-      // 5. Delete from playlists state
-      setPlaylists(prev => prev.map(p => ({
-        ...p,
-        videoIds: p.videoIds.filter(id => id !== videoId)
-      })));
+    askConfirmation({
+      title: confirmTitle,
+      message: confirmMessage,
+      onConfirm: () => {
+        // 1. Delete from videos state
+        setVideos(prev => prev.filter(v => v.id !== videoId));
+        
+        // 2. Delete from history state
+        setHistory(prev => prev.filter(h => h.videoId !== videoId));
+        
+        // 3. Delete from watch later state
+        setWatchLater(prev => prev.filter(id => id !== videoId));
+        
+        // 4. Delete from downloads state
+        setDownloads(prev => prev.filter(id => id !== videoId));
+        
+        // 5. Delete from playlists state
+        setPlaylists(prev => prev.map(p => ({
+          ...p,
+          videoIds: p.videoIds.filter(id => id !== videoId)
+        })));
 
-      // 6. If currently watching this video, clear it or go back to home
-      if (activeVideo && activeVideo.id === videoId) {
-        setActiveVideo(null);
-        setView('home');
-      }
+        // 6. If currently watching this video, clear it or go back to home
+        if (activeVideo && activeVideo.id === videoId) {
+          setActiveVideo(null);
+          setView('home');
+        }
 
-      triggerToast(
-        isArabic 
-          ? 'تم حذف الفيديو بنجاح من قناتك!' 
-          : 'Video deleted successfully from your channel!',
-        'success'
-      );
-    }
+        triggerToast(
+          isArabic 
+            ? 'تم حذف الفيديو بنجاح من قناتك!' 
+            : 'Video deleted successfully from your channel!',
+          'success'
+        );
+      },
+      confirmText: isArabic ? 'نعم، احذف نهائياً' : 'Yes, delete permanently',
+      cancelText: isArabic ? 'إلغاء' : 'Cancel'
+    });
   };
 
   // Subscriptions toggles
@@ -1040,9 +1091,10 @@ export default function App() {
 
       const activeQuery = offlineSearchQuery.trim() ? offlineSearchQuery : searchQuery;
 
+      let result = downloadedVideos;
       if (activeQuery.trim()) {
         const matchText = activeQuery.toLowerCase();
-        return downloadedVideos.filter(video => {
+        result = downloadedVideos.filter(video => {
           const titleMatch = video.title.toLowerCase().includes(matchText);
           const descMatch = video.description.toLowerCase().includes(matchText);
           const channelMatch = video.channelName.toLowerCase().includes(matchText);
@@ -1050,7 +1102,30 @@ export default function App() {
           return titleMatch || descMatch || channelMatch || categoryMatch;
         });
       }
-      return downloadedVideos;
+
+      // Sort result based on downloadsSort
+      if (downloadsSort === 'date') {
+        result = [...result].sort((a, b) => {
+          const metaA = downloadsMetadata[a.id] || { downloadedAt: '1970-01-01T00:00:00.000Z' };
+          const metaB = downloadsMetadata[b.id] || { downloadedAt: '1970-01-01T00:00:00.000Z' };
+          return new Date(metaB.downloadedAt).getTime() - new Date(metaA.downloadedAt).getTime();
+        });
+      } else if (downloadsSort === 'size') {
+        result = [...result].sort((a, b) => {
+          const metaA = downloadsMetadata[a.id] || { sizeMb: 0 };
+          const metaB = downloadsMetadata[b.id] || { sizeMb: 0 };
+          return metaB.sizeMb - metaA.sizeMb;
+        });
+      } else if (downloadsSort === 'quality') {
+        const priority = { '1080p': 3, '720p': 2, 'mp3': 1 };
+        result = [...result].sort((a, b) => {
+          const metaA = downloadsMetadata[a.id] || { quality: '720p' };
+          const metaB = downloadsMetadata[b.id] || { quality: '720p' };
+          return (priority[metaB.quality] || 0) - (priority[metaA.quality] || 0);
+        });
+      }
+
+      return result;
     }
 
     return videos.filter(video => {
@@ -1283,11 +1358,17 @@ export default function App() {
                 downloads={downloads}
                 onVideoSelect={handleVideoSelect}
                 language={settings.language === 'ar' ? 'ar' : 'en'}
+                askConfirmation={askConfirmation}
               />
             </div>
           ) : (
             /* Grid Feeds (Home, Liked, Uploads, Subscribed channels) */
             <div className="p-4 md:p-6 space-y-6">
+
+              {/* Snapchat-like Stories Feed (Daily Stories) */}
+              {!activeChannelFilter && currentView === 'home' && (
+                <StoriesSection language={settings.language === 'ar' ? 'ar' : 'en'} currentUser={currentUser} />
+              )}
               
               {/* Category Chips Selector (Only shown in non-watch/dev states) */}
               {!activeChannelFilter && currentView === 'home' && (
@@ -1459,9 +1540,18 @@ export default function App() {
                       <button
                         id="clear-history-btn"
                         onClick={() => {
-                          if (confirm('Are you sure you want to clear your watch history?')) {
-                            setHistory([]);
-                          }
+                          const isArabic = settings.language === 'ar';
+                          askConfirmation({
+                            title: isArabic ? 'مسح سجل المشاهدة' : 'Clear Watch History',
+                            message: isArabic 
+                              ? 'هل أنت متأكد من رغبتك في مسح سجل المشاهدة بالكامل؟ لا يمكن التراجع عن هذا الإجراء.' 
+                              : 'Are you sure you want to clear your entire watch history? This action cannot be undone.',
+                            onConfirm: () => {
+                              setHistory([]);
+                            },
+                            confirmText: isArabic ? 'نعم، امسح السجل' : 'Yes, clear history',
+                            cancelText: isArabic ? 'إلغاء' : 'Cancel'
+                          });
                         }}
                         className="text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100/80 px-4 py-1.5 rounded-full transition-colors active:scale-95 border border-red-200 cursor-pointer"
                       >
@@ -1473,9 +1563,18 @@ export default function App() {
                     <button
                       id="clear-watch-later-btn"
                       onClick={() => {
-                        if (confirm('Are you sure you want to clear your Watch Later list?')) {
-                          setWatchLater([]);
-                        }
+                        const isArabic = settings.language === 'ar';
+                        askConfirmation({
+                          title: isArabic ? 'مسح قائمة المشاهدة لاحقاً' : 'Clear Watch Later',
+                          message: isArabic 
+                            ? 'هل أنت متأكد من رغبتك في تفريغ قائمة المشاهدة لاحقاً بالكامل؟' 
+                            : 'Are you sure you want to empty your Watch Later list?',
+                          onConfirm: () => {
+                            setWatchLater([]);
+                          },
+                          confirmText: isArabic ? 'نعم، قم بالتفريغ' : 'Yes, empty list',
+                          cancelText: isArabic ? 'إلغاء' : 'Cancel'
+                        });
                       }}
                       className="text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100/80 px-4 py-1.5 rounded-full transition-colors active:scale-95 border border-red-200 cursor-pointer"
                     >
@@ -1483,36 +1582,62 @@ export default function App() {
                     </button>
                   )}
                   {currentView === 'downloads' && (
-                    <div className="relative min-w-[200px] sm:min-w-[260px] md:min-w-[300px]">
-                      <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
-                      <input
-                        id="offline-search-input"
-                        type="text"
-                        value={offlineSearchQuery}
-                        onChange={(e) => setOfflineSearchQuery(e.target.value)}
-                        placeholder={settings.language === 'ar' ? 'بحث في التنزيلات المحفوظة...' : 'Search offline downloads...'}
-                        className="w-full pl-9 pr-8 py-1.5 bg-white border border-gray-200 rounded-full text-xs focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all shadow-xs"
-                      />
-                      {offlineSearchQuery && (
-                        <button
-                          onClick={() => setOfflineSearchQuery('')}
-                          className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none p-0.5"
+                    <>
+                      {/* Sort Dropdown */}
+                      <div className="flex items-center gap-1.5 bg-white border border-gray-200 px-3.5 py-1.5 rounded-full shadow-sm text-xs text-gray-700">
+                        <span className="font-semibold text-gray-500 font-sans">
+                          {settings.language === 'ar' ? 'ترتيب:' : 'Sort:'}
+                        </span>
+                        <select
+                          id="downloads-sort-select"
+                          value={downloadsSort}
+                          onChange={(e) => setDownloadsSort(e.target.value as any)}
+                          className="bg-transparent font-bold focus:outline-none cursor-pointer pr-1 font-sans text-gray-800"
                         >
-                          <X className="w-3 h-3" />
-                        </button>
-                      )}
-                    </div>
+                          <option value="date">{settings.language === 'ar' ? 'تاريخ التنزيل' : 'Date Downloaded'}</option>
+                          <option value="size">{settings.language === 'ar' ? 'حجم الملف' : 'File Size'}</option>
+                          <option value="quality">{settings.language === 'ar' ? 'الجودة (1080p/720p/MP3)' : 'Quality (1080p/720p/MP3)'}</option>
+                        </select>
+                      </div>
+
+                      {/* Search Bar */}
+                      <div className="relative min-w-[200px] sm:min-w-[260px] md:min-w-[300px]">
+                        <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-400" />
+                        <input
+                          id="offline-search-input"
+                          type="text"
+                          value={offlineSearchQuery}
+                          onChange={(e) => setOfflineSearchQuery(e.target.value)}
+                          placeholder={settings.language === 'ar' ? 'بحث في التنزيلات المحفوظة...' : 'Search offline downloads...'}
+                          className="w-full pl-9 pr-8 py-1.5 bg-white border border-gray-200 rounded-full text-xs focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent transition-all shadow-xs"
+                        />
+                        {offlineSearchQuery && (
+                          <button
+                            onClick={() => setOfflineSearchQuery('')}
+                            className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 focus:outline-none p-0.5"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        )}
+                      </div>
+                    </>
                   )}
                   {currentView === 'downloads' && downloads.length > 0 && (
                     <button
                       id="clear-downloads-btn"
                       onClick={() => {
-                        const confirmMsg = settings.language === 'ar'
-                          ? 'هل أنت متأكد من رغبتك في حذف جميع الفيديوهات من قائمة التنزيلات؟'
-                          : 'Are you sure you want to clear your downloads list?';
-                        if (confirm(confirmMsg)) {
-                          setDownloads([]);
-                        }
+                        const isArabic = settings.language === 'ar';
+                        askConfirmation({
+                          title: isArabic ? 'مسح التنزيلات' : 'Clear Downloads',
+                          message: isArabic
+                            ? 'هل أنت متأكد من رغبتك في حذف جميع الفيديوهات من قائمة التنزيلات؟'
+                            : 'Are you sure you want to clear your downloads list?',
+                          onConfirm: () => {
+                            setDownloads([]);
+                          },
+                          confirmText: isArabic ? 'نعم، امسح الكل' : 'Yes, clear all',
+                          cancelText: isArabic ? 'إلغاء' : 'Cancel'
+                        });
                       }}
                       className="text-xs font-semibold text-red-600 hover:text-red-700 bg-red-50 hover:bg-red-100/80 px-4 py-1.5 rounded-full transition-colors active:scale-95 border border-red-200 cursor-pointer whitespace-nowrap"
                     >
@@ -1726,7 +1851,27 @@ export default function App() {
                         </div>
 
                         <div className="border border-gray-100 rounded-2xl overflow-hidden divide-y divide-gray-100 max-h-60 overflow-y-auto bg-white">
-                          {downloads.map(id => {
+                          {[...downloads].sort((idA, idB) => {
+                            const a = videos.find(v => v.id === idA);
+                            const b = videos.find(v => v.id === idB);
+                            if (!a || !b) return 0;
+                            
+                            if (downloadsSort === 'date') {
+                              const metaA = downloadsMetadata[idA] || { downloadedAt: '1970-01-01T00:00:00.000Z' };
+                              const metaB = downloadsMetadata[idB] || { downloadedAt: '1970-01-01T00:00:00.000Z' };
+                              return new Date(metaB.downloadedAt).getTime() - new Date(metaA.downloadedAt).getTime();
+                            } else if (downloadsSort === 'size') {
+                              const metaA = downloadsMetadata[idA] || { sizeMb: 0 };
+                              const metaB = downloadsMetadata[idB] || { sizeMb: 0 };
+                              return metaB.sizeMb - metaA.sizeMb;
+                            } else if (downloadsSort === 'quality') {
+                              const metaA = downloadsMetadata[idA] || { quality: '720p' };
+                              const metaB = downloadsMetadata[idB] || { quality: '720p' };
+                              const priority = { '1080p': 3, '720p': 2, 'mp3': 1 };
+                              return (priority[metaB.quality] || 0) - (priority[metaA.quality] || 0);
+                            }
+                            return 0;
+                          }).map(id => {
                             const video = videos.find(v => v.id === id);
                             if (!video) return null;
                             const meta = downloadsMetadata[id] || { downloadedAt: new Date().toISOString(), sizeMb: 58.9, quality: '1080p' };
@@ -2040,6 +2185,7 @@ export default function App() {
                                   onToggleWatchLater={() => handleToggleWatchLater(video.id)}
                                   isInDownloads={downloads.includes(video.id)}
                                   onToggleDownload={() => handleToggleDownload(video.id)}
+                                  downloadQuality={downloadsMetadata[video.id]?.quality}
                                   onChannelClick={(chanId) => {
                                     setActiveChannelFilter(chanId);
                                     setView('channel');
@@ -2087,6 +2233,7 @@ export default function App() {
                         onToggleWatchLater={() => handleToggleWatchLater(video.id)}
                         isInDownloads={downloads.includes(video.id)}
                         onToggleDownload={() => handleToggleDownload(video.id)}
+                        downloadQuality={downloadsMetadata[video.id]?.quality}
                         onChannelClick={(chanId) => {
                           setActiveChannelFilter(chanId);
                           setView('channel');
@@ -2111,6 +2258,7 @@ export default function App() {
           onClose={() => setShowUploadModal(false)}
           onUploadSuccess={handleUploadSuccess}
           currentUser={currentUser}
+          language={settings.language}
         />
       )}
 
@@ -2176,6 +2324,18 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* 9. Premium Confirm Modal System */}
+      <ConfirmModal
+        isOpen={confirmModalState.isOpen}
+        title={confirmModalState.title}
+        message={confirmModalState.message}
+        onConfirm={confirmModalState.onConfirm}
+        onCancel={() => setConfirmModalState(prev => ({ ...prev, isOpen: false }))}
+        confirmText={confirmModalState.confirmText}
+        cancelText={confirmModalState.cancelText}
+        language={settings.language}
+      />
     </div>
   );
 }

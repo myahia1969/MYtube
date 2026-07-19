@@ -34,13 +34,7 @@ export default function SettingsModal({
   const speedOptions = [1.0, 1.25, 1.5, 2.0];
 
   const handleResetClick = () => {
-    const confirmMessage = isAr 
-      ? 'هل أنت متأكد من رغبتك في إعادة ضبط جميع الإعدادات وحذف كل الفيديوهات المرفوعة والتعليقات؟ سيتم إعادة تحميل الصفحة.' 
-      : 'Are you sure you want to restore factory settings? This will clear all custom uploads, comments, and history. The page will reload.';
-    
-    if (window.confirm(confirmMessage)) {
-      onResetAllData();
-    }
+    onResetAllData();
   };
 
   return (
