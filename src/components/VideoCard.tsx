@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Video } from '../types';
-import { Play, X, Clock, Share2, RotateCcw, Download, Trash2, CheckCircle2 } from 'lucide-react';
+import { Play, X, Clock, Share2, RotateCcw, Download, Trash2, CheckCircle2, GripVertical } from 'lucide-react';
 
 interface VideoCardProps {
   key?: string;
@@ -20,6 +20,9 @@ interface VideoCardProps {
   onShare?: (video: Video) => void;
   onWatchAgain?: () => void;
   language?: string;
+  folderName?: string;
+  onAssignFolder?: (folderName: string) => void;
+  availableFolders?: string[];
 }
 
 export default function VideoCard({ 
@@ -38,6 +41,9 @@ export default function VideoCard({
   onShare,
   onWatchAgain,
   language = 'en',
+  folderName,
+  onAssignFolder,
+  availableFolders = [],
 }: VideoCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isPreviewActive, setIsPreviewActive] = useState(false);
@@ -139,7 +145,18 @@ export default function VideoCard({
       whileHover="hover"
       whileTap="tap"
       transition={{ type: 'spring', stiffness: 350, damping: 20 }}
-      className="group flex flex-col gap-3.5 bg-white rounded-2xl overflow-hidden cursor-pointer hover:bg-gray-100/55 p-2 border border-transparent hover:border-gray-200"
+      className="group flex flex-col gap-3.5 bg-white rounded-2xl overflow-hidden cursor-pointer hover:bg-gray-100/55 p-2 border border-transparent hover:border-gray-200 select-none"
+      draggable={isInDownloads}
+      onDragStart={(e) => {
+        if (isInDownloads) {
+          e.dataTransfer.setData('text/plain', video.id);
+          e.dataTransfer.effectAllowed = 'move';
+          e.currentTarget.style.opacity = '0.4';
+        }
+      }}
+      onDragEnd={(e) => {
+        e.currentTarget.style.opacity = '1';
+      }}
     >
       {/* Video Thumbnail container with Aspect Ratio */}
       <div className="relative w-full aspect-video rounded-xl overflow-hidden bg-gray-100 border border-gray-200/60">
@@ -300,6 +317,14 @@ export default function VideoCard({
         <span className={`absolute top-2.5 left-2.5 bg-white/90 backdrop-blur-sm text-red-600 text-[9px] font-mono px-2 py-0.5 rounded-full border border-gray-200 font-bold ${isInDownloads ? 'hidden' : ''}`}>
           {video.category}
         </span>
+
+        {/* Drag to Move Overlay Indicator for Offline Downloads */}
+        {isInDownloads && (
+          <div className="absolute top-2.5 left-2.5 z-10 flex items-center gap-1 bg-black/75 backdrop-blur-md text-white text-[9px] font-sans px-2 py-0.5 rounded-full shadow-md border border-white/10 opacity-0 group-hover:opacity-100 transition-opacity duration-300 select-none pointer-events-none">
+            <GripVertical className="w-2.5 h-2.5 text-gray-300" />
+            <span>{language === 'ar' ? 'اسحب للنقل' : 'Drag to Move'}</span>
+          </div>
+        )}
 
         {/* Action Buttons Tray (Top-Right) */}
         <div className="absolute top-2.5 right-2.5 z-10 flex items-center gap-1.5">
@@ -470,6 +495,32 @@ export default function VideoCard({
                   <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
                 </span>
                 <span>{language === 'ar' ? 'جاهز للمشاهدة بدون اتصال (100%)' : 'Ready Offline (100% Saved)'}</span>
+              </div>
+            )}
+
+            {isInDownloads && onAssignFolder && (
+              <div className="mt-1.5 flex items-center gap-1 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-md px-1.5 py-0.5 text-[10px] font-medium w-fit shadow-2xs">
+                <span className="text-[10px] shrink-0">📁</span>
+                <select
+                  value={folderName || ''}
+                  onChange={(e) => {
+                    onAssignFolder(e.target.value);
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                  className="bg-transparent text-gray-700 dark:text-zinc-200 focus:outline-none cursor-pointer max-w-[125px] font-semibold text-[10px]"
+                >
+                  <option value="" className="text-gray-900 dark:text-zinc-100">
+                    {language === 'ar' ? 'بدون مجلد' : 'No Folder'}
+                  </option>
+                  {availableFolders.map((f) => (
+                    <option key={f} value={f} className="text-gray-900 dark:text-zinc-100">
+                      {f}
+                    </option>
+                  ))}
+                  <option value="__new__" className="text-red-600 dark:text-red-400 font-bold">
+                    {language === 'ar' ? '+ مجلد جديد...' : '+ New Folder...'}
+                  </option>
+                </select>
               </div>
             )}
 

@@ -3,6 +3,7 @@ import path from "path";
 import { createServer as createViteServer } from "vite";
 import { GoogleGenAI, Type } from "@google/genai";
 import dotenv from "dotenv";
+import { WebSocketServer, WebSocket } from "ws";
 
 dotenv.config();
 
@@ -929,8 +930,152 @@ async function startServer() {
     });
   }
 
-  app.listen(PORT, "0.0.0.0", () => {
+  const server = app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
+  });
+
+  const wss = new WebSocketServer({ server });
+
+  interface ChatUser {
+    id: string;
+    displayName: string;
+    avatarUrl: string;
+    email: string;
+  }
+
+  const clients = new Map<string, { ws: WebSocket; user: ChatUser }>();
+
+  wss.on("connection", (ws: WebSocket) => {
+    let currentUserId: string | null = null;
+
+    ws.on("message", (messageData: string) => {
+      try {
+        const payload = JSON.parse(messageData);
+        switch (payload.type) {
+          case "register": {
+            const user = payload.user as ChatUser;
+            if (!user || !user.id) return;
+            currentUserId = user.id;
+            clients.set(user.id, { ws, user });
+
+            // Broadcast updated online list
+            const onlineUsers = Array.from(clients.values()).map(c => c.user);
+            const onlineMsg = JSON.stringify({ type: "online_users", users: onlineUsers });
+            clients.forEach(client => {
+              if (client.ws.readyState === WebSocket.OPEN) {
+                client.ws.send(onlineMsg);
+              }
+            });
+            break;
+          }
+
+          case "message": {
+            const { targetId, text } = payload;
+            if (!targetId || !text || !currentUserId) return;
+            
+            const sender = clients.get(currentUserId);
+            const receiver = clients.get(targetId);
+
+            const chatMsg = JSON.stringify({
+              type: "message",
+              id: `msg-${Date.now()}`,
+              senderId: currentUserId,
+              senderName: sender?.user.displayName || "User",
+              text,
+              timestamp: new Date().toISOString()
+            });
+
+            // Send to receiver
+            if (receiver && receiver.ws.readyState === WebSocket.OPEN) {
+              receiver.ws.send(chatMsg);
+            }
+            // Send back to sender
+            if (sender && sender.ws.readyState === WebSocket.OPEN) {
+              sender.ws.send(chatMsg);
+            }
+            break;
+          }
+
+          case "call_initiate": {
+            const { targetId } = payload;
+            if (!targetId || !currentUserId) return;
+            const receiver = clients.get(targetId);
+            const sender = clients.get(currentUserId);
+
+            if (receiver && receiver.ws.readyState === WebSocket.OPEN) {
+              receiver.ws.send(JSON.stringify({
+                type: "call_incoming",
+                callerId: currentUserId,
+                callerName: sender?.user.displayName || "Someone",
+                callerAvatar: sender?.user.avatarUrl || ""
+              }));
+            }
+            break;
+          }
+
+          case "call_response": {
+            const { targetId, accepted } = payload;
+            if (!targetId || !currentUserId) return;
+            const receiver = clients.get(targetId);
+
+            if (receiver && receiver.ws.readyState === WebSocket.OPEN) {
+              receiver.ws.send(JSON.stringify({
+                type: "call_answered",
+                accepted,
+                responderId: currentUserId
+              }));
+            }
+            break;
+          }
+
+          case "audio_packet": {
+            const { targetId, audio } = payload;
+            if (!targetId || !audio) return;
+            const receiver = clients.get(targetId);
+
+            if (receiver && receiver.ws.readyState === WebSocket.OPEN) {
+              receiver.ws.send(JSON.stringify({
+                type: "audio_packet",
+                senderId: currentUserId,
+                audio
+              }));
+            }
+            break;
+          }
+
+          case "call_terminate": {
+            const { targetId } = payload;
+            if (!targetId) return;
+            const receiver = clients.get(targetId);
+
+            if (receiver && receiver.ws.readyState === WebSocket.OPEN) {
+              receiver.ws.send(JSON.stringify({
+                type: "call_ended",
+                senderId: currentUserId
+              }));
+            }
+            break;
+          }
+        }
+      } catch (err) {
+        console.error("WS error processing message:", err);
+      }
+    });
+
+    ws.on("close", () => {
+      if (currentUserId) {
+        clients.delete(currentUserId);
+
+        // Broadcast updated online list
+        const onlineUsers = Array.from(clients.values()).map(c => c.user);
+        const onlineMsg = JSON.stringify({ type: "online_users", users: onlineUsers });
+        clients.forEach(client => {
+          if (client.ws.readyState === WebSocket.OPEN) {
+            client.ws.send(onlineMsg);
+          }
+        });
+      }
+    });
   });
 }
 

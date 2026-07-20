@@ -51,3 +51,14 @@ export interface Playlist {
   videoIds: string[];
   createdAt: string;
 }
+
+export interface VideoBookmark {
+  id: string;
+  videoId: string;
+  videoTitle: string;
+  thumbnailUrl: string;
+  timestamp: number;
+  timestampLabel: string;
+  note: string;
+  createdAt: string;
+}

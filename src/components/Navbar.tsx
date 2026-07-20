@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Upload, Bell, Menu, Sparkles, User, Database, Settings, Mic, Keyboard, Wifi, WifiOff } from 'lucide-react';
+import { Search, Upload, Bell, Menu, Sparkles, User, Database, Settings, Mic, Keyboard, Wifi, WifiOff, History, Trash2, CheckCircle2, Info, XCircle, AlertCircle } from 'lucide-react';
 import { User as UserType } from '../types';
 import VirtualKeyboard from './VirtualKeyboard';
 
@@ -18,6 +18,13 @@ interface NavbarProps {
   onEditProfileClick?: () => void;
   language?: 'en' | 'ar';
   onWebSearchClick?: (query: string) => void;
+  
+  // Custom Alert History props
+  alertHistory?: { id: string; message: string; type: 'success' | 'info' | 'error'; timestamp: number; isRead: boolean }[];
+  onClearAlertHistory?: () => void;
+  onMarkAlertsAsRead?: (id?: string) => void;
+  onRemoveAlert?: (id: string) => void;
+  onTriggerToast?: (message: string, type: 'success' | 'info' | 'error') => void;
 }
 
 export default function Navbar({
@@ -35,6 +42,11 @@ export default function Navbar({
   onEditProfileClick,
   language = 'en',
   onWebSearchClick,
+  alertHistory = [],
+  onClearAlertHistory,
+  onMarkAlertsAsRead,
+  onRemoveAlert,
+  onTriggerToast,
 }: NavbarProps) {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showKeyboard, setShowKeyboard] = useState(false);
@@ -42,6 +54,151 @@ export default function Navbar({
   const [isOnline, setIsOnline] = useState(() => {
     return typeof navigator !== 'undefined' ? navigator.onLine : true;
   });
+
+  // Interactive Notifications State
+  const [showNotifications, setShowNotifications] = useState(false);
+  const [showAlertHistory, setShowAlertHistory] = useState(false);
+  const [notifications, setNotifications] = useState(() => {
+    const saved = localStorage.getItem('mytube_notifications');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return [
+      {
+        id: '1',
+        titleEn: 'Sara Al-Harbi uploaded a new video',
+        titleAr: 'قامت سارة الحربي برفع فيديو جديد',
+        descEn: 'Cloud Engineering: From Beginner to Pro 🚀',
+        descAr: 'هندسة الحوسبة السحابية: من البداية للاحتراف 🚀',
+        timeEn: '2 hours ago',
+        timeAr: 'قبل ساعتين',
+        isRead: false,
+        type: 'upload',
+      },
+      {
+        id: '2',
+        titleEn: 'Omar Farooq liked your story',
+        titleAr: 'قام عمر فاروق بالإعجاب بقصتك',
+        descEn: 'Replied to your story with Fire reaction 🔥',
+        descAr: 'رد على قصتك بردة الفعل النارية 🔥',
+        timeEn: '5 hours ago',
+        timeAr: 'قبل 5 ساعات',
+        isRead: false,
+        type: 'like',
+      },
+      {
+        id: '3',
+        titleEn: 'Milestone Achieved! 🎉',
+        titleAr: 'تم تحقيق إنجاز جديد! 🎉',
+        descEn: 'Your channel just reached 1,000 active subscribers!',
+        descAr: 'وصلت قناتك للتو إلى 1,000 مشترك نشط!',
+        timeEn: '1 day ago',
+        timeAr: 'قبل يوم واحد',
+        isRead: true,
+        type: 'milestone',
+      },
+      {
+        id: '4',
+        titleEn: 'MYtube Premium active',
+        titleAr: 'اشتراك MYtube المميز نشط',
+        descEn: 'Enjoy ad-free streaming, visual story filters, and offline storage.',
+        descAr: 'استمتع بالبث الخالي من الإعلانات، مرشحات القصص البصرية، ومساحة التخزين غير المتصلة.',
+        timeEn: '3 days ago',
+        timeAr: 'قبل 3 أيام',
+        isRead: true,
+        type: 'system',
+      }
+    ];
+  });
+
+  const [selectedNotifDetails, setSelectedNotifDetails] = useState<any | null>(null);
+  const [selectedAlertDetails, setSelectedAlertDetails] = useState<any | null>(null);
+
+  useEffect(() => {
+    localStorage.setItem('mytube_notifications', JSON.stringify(notifications));
+  }, [notifications]);
+
+  const unreadCount = notifications.filter((n: any) => !n.isRead).length;
+
+  const handleMarkAsRead = (id: string) => {
+    setNotifications((prev: any) =>
+      prev.map((n: any) => (n.id === id ? { ...n, isRead: true } : n))
+    );
+  };
+
+  const handleMarkAllAsRead = () => {
+    setNotifications((prev: any) => prev.map((n: any) => ({ ...n, isRead: true })));
+  };
+
+  const handleClearNotification = (id: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    setNotifications((prev: any) => prev.filter((n: any) => n.id !== id));
+  };
+
+  const handleSimulateNotification = () => {
+    const randomTemplates = [
+      {
+        titleEn: 'New Subscriber Joined 🌟',
+        titleAr: 'مشترك جديد انضم إليك 🌟',
+        descEn: 'Yousef Ahmed subscribed to your channel.',
+        descAr: 'اشترك يوسف أحمد في قناتك للتو.',
+        type: 'subscribe',
+      },
+      {
+        titleEn: 'Video Comment Added 💬',
+        titleAr: 'تعليق جديد على الفيديو 💬',
+        descEn: 'Layan Al-Shehri: "This is the best tutorial ever!"',
+        descAr: 'ليان الشهري: "هذا أفضل شرح على الإطلاق!"',
+        type: 'comment',
+      },
+      {
+        titleEn: 'Trending Alert 📈',
+        titleAr: 'تنبيه الشائع 📈',
+        descEn: 'Your uploaded story is gaining popularity fast!',
+        descAr: 'قصتك المرفوعة تكتسب شعبية كبيرة وبسرعة!',
+        type: 'trend',
+      },
+      {
+        titleEn: 'New Story Published ⚡',
+        titleAr: 'قصة جديدة تم نشرها ⚡',
+        descEn: 'Ali Hassan added a new story with Vivid filter.',
+        descAr: 'أضاف علي حسن قصة جديدة مع فلتر مشروب Vivid.',
+        type: 'story',
+      },
+    ];
+
+    const template = randomTemplates[Math.floor(Math.random() * randomTemplates.length)];
+    const newNotif = {
+      id: String(Date.now()),
+      titleEn: template.titleEn,
+      titleAr: template.titleAr,
+      descEn: template.descEn,
+      descAr: template.descAr,
+      timeEn: 'Just now',
+      timeAr: 'الآن',
+      isRead: false,
+      type: template.type,
+    };
+    setNotifications((prev: any) => [newNotif, ...prev]);
+  };
+
+  const formatAlertTime = (timestamp: number) => {
+    const diff = Date.now() - timestamp;
+    if (diff < 60000) {
+      return language === 'ar' ? 'الآن' : 'Just now';
+    }
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) {
+      return language === 'ar' ? `قبل ${mins} دقيقة` : `${mins}m ago`;
+    }
+    const hours = Math.floor(mins / 60);
+    if (hours < 24) {
+      return language === 'ar' ? `قبل ${hours} ساعة` : `${hours}h ago`;
+    }
+    return new Date(timestamp).toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US');
+  };
 
   useEffect(() => {
     const handleOnline = () => setIsOnline(true);
@@ -271,21 +428,308 @@ export default function Navbar({
               <span className="hidden md:inline">Upload</span>
             </button>
 
-            {/* Notifications mock */}
-            <button 
-              id="btn-notifications"
-              className="p-2 hover:bg-gray-100 rounded-full text-gray-500 hover:text-[#0f0f0f] transition-colors relative"
-              title="Notifications"
-            >
-              <Bell className="w-4 h-4" />
-              <span className="absolute top-1.5 right-1.5 w-2 h-2 bg-red-500 rounded-full border border-white"></span>
-            </button>
+            {/* Notifications Button with Dropdown */}
+            <div className="relative">
+              <button 
+                id="btn-notifications"
+                onClick={() => {
+                  setShowNotifications(!showNotifications);
+                  setShowAlertHistory(false); // close other menus
+                  setShowProfileMenu(false);
+                }}
+                className={`p-2 hover:bg-gray-100 rounded-full transition-colors relative cursor-pointer ${
+                  showNotifications ? 'bg-gray-100 text-[#0f0f0f]' : 'text-gray-500 hover:text-[#0f0f0f]'
+                }`}
+                title={language === 'ar' ? 'الإشعارات' : 'Notifications'}
+              >
+                <Bell className="w-4.5 h-4.5" />
+                {unreadCount > 0 && (
+                  <span className="absolute top-1 right-1 min-w-4 h-4 bg-red-500 text-white rounded-full border border-white text-[9px] font-bold flex items-center justify-center px-1">
+                    {unreadCount}
+                  </span>
+                )}
+              </button>
+
+              {showNotifications && (
+                <div 
+                  className={`absolute mt-2 w-80 sm:w-96 bg-white border border-gray-200 rounded-2xl shadow-xl py-3 z-50 overflow-hidden ${
+                    language === 'ar' ? 'left-[-40px] sm:left-[-100px]' : 'right-[-40px] sm:right-[-100px]'
+                  }`}
+                  style={{ direction: language === 'ar' ? 'rtl' : 'ltr' }}
+                >
+                  {/* Notification Header */}
+                  <div className="px-4 pb-2 border-b border-gray-100 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="font-sans font-black text-sm text-gray-900">
+                        {language === 'ar' ? 'الإشعارات' : 'Notifications'}
+                      </span>
+                      {unreadCount > 0 && (
+                        <span className="bg-red-50 text-red-600 border border-red-100 text-[10px] font-black px-2 py-0.5 rounded-full">
+                          {unreadCount} {language === 'ar' ? 'جديد' : 'new'}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {notifications.length > 0 && (
+                        <button
+                          onClick={handleMarkAllAsRead}
+                          className="text-[10px] text-red-650 hover:text-red-800 font-bold hover:underline transition-all cursor-pointer"
+                        >
+                          {language === 'ar' ? 'قراءة الكل' : 'Mark all as read'}
+                        </button>
+                      )}
+                      <button
+                        onClick={handleSimulateNotification}
+                        className="text-[10px] text-indigo-650 hover:text-indigo-800 font-bold hover:underline transition-all cursor-pointer flex items-center gap-0.5"
+                        title={language === 'ar' ? 'محاكاة إشعار جديد' : 'Simulate a notification'}
+                      >
+                        ⚡ {language === 'ar' ? 'محاكاة' : 'Simulate'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Notification List */}
+                  <div className="max-h-80 overflow-y-auto divide-y divide-gray-50 custom-scrollbar">
+                    {notifications.length === 0 ? (
+                      <div className="py-8 px-4 text-center flex flex-col items-center justify-center text-gray-400 gap-2">
+                        <Bell className="w-8 h-8 text-gray-300 stroke-[1.5]" />
+                        <span className="text-xs font-semibold">
+                          {language === 'ar' ? 'لا توجد إشعارات جديدة' : 'No notifications yet'}
+                        </span>
+                        <p className="text-[10px] text-gray-400 max-w-[200px] leading-relaxed">
+                          {language === 'ar' ? 'عندما يحدث نشاط جديد، سيظهر هنا!' : 'When new activity happens, it will show up here!'}
+                        </p>
+                      </div>
+                    ) : (
+                      notifications.map((notif: any) => (
+                        <div
+                          key={notif.id}
+                          onClick={() => {
+                            handleMarkAsRead(notif.id);
+                            setSelectedNotifDetails(notif);
+                            setShowNotifications(false);
+                          }}
+                          className={`p-3 hover:bg-gray-50 transition-colors flex gap-3 relative cursor-pointer group ${
+                            !notif.isRead ? 'bg-red-50/10' : ''
+                          }`}
+                        >
+                          {/* Unread indicator dot */}
+                          {!notif.isRead && (
+                            <span className="absolute top-4 left-2.5 w-1.5 h-1.5 bg-red-600 rounded-full"></span>
+                          )}
+
+                          {/* Icon/Emoji */}
+                          <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center shrink-0 border border-gray-200/50 text-base shadow-xs">
+                            {notif.type === 'upload' ? '📹' :
+                             notif.type === 'like' ? '🔥' :
+                             notif.type === 'milestone' ? '🎉' :
+                             notif.type === 'system' ? '💻' :
+                             notif.type === 'subscribe' ? '🌟' :
+                             notif.type === 'comment' ? '💬' :
+                             notif.type === 'trend' ? '📈' :
+                             notif.type === 'story' ? '⚡' : '🔔'}
+                          </div>
+
+                          {/* Content */}
+                          <div className="flex-1 min-w-0 pr-4">
+                            <p className="text-xs font-black text-gray-800 line-clamp-1">
+                              {language === 'ar' ? notif.titleAr : notif.titleEn}
+                            </p>
+                            <p className="text-[11px] text-gray-500 mt-0.5 line-clamp-2 leading-relaxed">
+                              {language === 'ar' ? notif.descAr : notif.descEn}
+                            </p>
+                            <span className="text-[9px] text-gray-400 mt-1 block font-mono">
+                              {language === 'ar' ? notif.timeAr : notif.timeEn}
+                            </span>
+                          </div>
+
+                          {/* Action Hover Button */}
+                          <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              onClick={(e) => handleClearNotification(notif.id, e)}
+                              className="p-1 hover:bg-gray-200 text-gray-400 hover:text-red-600 rounded-lg transition-colors cursor-pointer"
+                              title={language === 'ar' ? 'حذف' : 'Remove'}
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                              </svg>
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Alert History Button with Dropdown */}
+            <div className="relative">
+              <button 
+                id="btn-alert-history"
+                onClick={() => {
+                  setShowAlertHistory(!showAlertHistory);
+                  setShowNotifications(false); // close other menus
+                  setShowProfileMenu(false);
+                }}
+                className={`p-2 hover:bg-gray-100 rounded-full transition-colors relative cursor-pointer ${
+                  showAlertHistory ? 'bg-gray-100 text-[#0f0f0f]' : 'text-gray-500 hover:text-[#0f0f0f]'
+                }`}
+                title={language === 'ar' ? 'سجل التنبيهات والتوست' : 'Alert & Toast History'}
+              >
+                <History className="w-4.5 h-4.5" />
+                {alertHistory.filter(item => !item.isRead).length > 0 && (
+                  <span className="absolute top-1 right-1 min-w-4 h-4 bg-orange-500 text-white rounded-full border border-white text-[9px] font-bold flex items-center justify-center px-1">
+                    {alertHistory.filter(item => !item.isRead).length}
+                  </span>
+                )}
+              </button>
+
+              {showAlertHistory && (
+                <div 
+                  className={`absolute mt-2 w-80 sm:w-96 bg-white border border-gray-200 rounded-2xl shadow-xl py-3 z-50 overflow-hidden ${
+                    language === 'ar' ? 'left-[-40px] sm:left-[-150px]' : 'right-[-40px] sm:right-[-150px]'
+                  }`}
+                  style={{ direction: language === 'ar' ? 'rtl' : 'ltr' }}
+                >
+                  {/* Header */}
+                  <div className="px-4 pb-2 border-b border-gray-100 flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                      <span className="font-sans font-black text-sm text-gray-900">
+                        {language === 'ar' ? 'سجل التنبيهات' : 'Alert History'}
+                      </span>
+                      {alertHistory.filter(item => !item.isRead).length > 0 && (
+                        <span className="bg-orange-50 text-orange-600 border border-orange-100 text-[10px] font-black px-2 py-0.5 rounded-full">
+                          {alertHistory.filter(item => !item.isRead).length} {language === 'ar' ? 'جديد' : 'new'}
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {alertHistory.length > 0 && (
+                        <>
+                          <button
+                            onClick={onMarkAlertsAsRead}
+                            className="text-[10px] text-orange-650 hover:text-orange-850 font-bold hover:underline transition-all cursor-pointer"
+                          >
+                            {language === 'ar' ? 'قرأت الكل' : 'Mark all read'}
+                          </button>
+                          <span className="text-gray-300">|</span>
+                          <button
+                            onClick={onClearAlertHistory}
+                            className="text-[10px] text-red-650 hover:text-red-800 font-bold hover:underline transition-all cursor-pointer"
+                          >
+                            {language === 'ar' ? 'مسح السجل' : 'Clear all'}
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* List */}
+                  <div className="max-h-80 overflow-y-auto divide-y divide-gray-50 custom-scrollbar">
+                    {alertHistory.length === 0 ? (
+                      <div className="py-8 px-4 text-center flex flex-col items-center justify-center text-gray-400 gap-2">
+                        <History className="w-8 h-8 text-gray-300 stroke-[1.5]" />
+                        <span className="text-xs font-semibold">
+                          {language === 'ar' ? 'السجل فارغ' : 'Your history is empty'}
+                        </span>
+                        <p className="text-[10px] text-gray-400 max-w-[220px] leading-relaxed">
+                          {language === 'ar' ? 'عند حدوث إشعارات توست أو تنبيهات نظام، ستظهر هنا بالتفصيل.' : 'Whenever a toast pop-up or notification appears, you will find it recorded here.'}
+                        </p>
+                      </div>
+                    ) : (
+                      alertHistory.map((item) => (
+                        <div
+                          key={item.id}
+                          onClick={() => {
+                            onMarkAlertsAsRead?.(item.id);
+                            setSelectedAlertDetails(item);
+                            setShowAlertHistory(false);
+                          }}
+                          className={`p-3 hover:bg-gray-50/80 transition-colors flex gap-3 relative cursor-pointer group ${
+                            !item.isRead ? 'bg-orange-50/10 border-l-2 border-orange-400' : ''
+                          }`}
+                        >
+                          {/* Alert Icon depending on type */}
+                          <div className="shrink-0 mt-0.5">
+                            {item.type === 'success' && (
+                              <CheckCircle2 className="w-4.5 h-4.5 text-green-500" />
+                            )}
+                            {item.type === 'info' && (
+                              <Info className="w-4.5 h-4.5 text-blue-500" />
+                            )}
+                            {item.type === 'error' && (
+                              <AlertCircle className="w-4.5 h-4.5 text-red-500" />
+                            )}
+                          </div>
+
+                          {/* Content */}
+                          <div className="flex-1 min-w-0 pr-6">
+                            <p className="text-xs text-gray-850 font-bold leading-relaxed break-words select-all">
+                              {item.message}
+                            </p>
+                            <span className="text-[9px] text-gray-400 mt-1 block font-mono">
+                              {formatAlertTime(item.timestamp)}
+                            </span>
+                          </div>
+
+                          {/* Action Delete Button */}
+                          <div className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 transition-opacity">
+                            <button
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                onRemoveAlert?.(item.id);
+                              }}
+                              className="p-1 hover:bg-gray-200 text-gray-400 hover:text-red-600 rounded-lg transition-colors cursor-pointer"
+                              title={language === 'ar' ? 'حذف من السجل' : 'Remove from history'}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </div>
+
+                  {/* Demonstration simulation footer */}
+                  <div className="bg-gray-50 px-4 py-2.5 border-t border-gray-100 text-center">
+                    <span className="text-[9px] font-black text-gray-500 uppercase tracking-wide block mb-1.5">
+                      {language === 'ar' ? '⚡ تجربة تنبيهات النظام:' : '⚡ Simulate toast alerts for testing:'}
+                    </span>
+                    <div className="flex items-center justify-center gap-1.5">
+                      <button
+                        onClick={() => onTriggerToast?.(language === 'ar' ? 'تم حفظ التغييرات بنجاح! 🎉' : 'Changes saved successfully! 🎉', 'success')}
+                        className="px-2 py-1 bg-green-50 text-green-700 border border-green-200 hover:bg-green-100 rounded-lg text-[9px] font-black cursor-pointer transition-colors"
+                      >
+                        {language === 'ar' ? 'نجاح' : 'Success'}
+                      </button>
+                      <button
+                        onClick={() => onTriggerToast?.(language === 'ar' ? 'تنبيه: سعة التخزين ممتازة وجاهزة.' : 'Notice: Offline storage is fully optimized.', 'info')}
+                        className="px-2 py-1 bg-blue-50 text-blue-700 border border-blue-200 hover:bg-blue-100 rounded-lg text-[9px] font-black cursor-pointer transition-colors"
+                      >
+                        {language === 'ar' ? 'معلومة' : 'Info'}
+                      </button>
+                      <button
+                        onClick={() => onTriggerToast?.(language === 'ar' ? 'فشل الاتصال: يرجى التحقق من الشبكة!' : 'Connection error: Please check your configuration!', 'error')}
+                        className="px-2 py-1 bg-red-50 text-red-700 border border-red-200 hover:bg-red-100 rounded-lg text-[9px] font-black cursor-pointer transition-colors"
+                      >
+                        {language === 'ar' ? 'خطأ' : 'Error'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
 
             {/* Avatar Dropdown Menu */}
             <div className="relative">
               <button
                 id="btn-profile-dropdown"
-                onClick={() => setShowProfileMenu(!showProfileMenu)}
+                onClick={() => {
+                  setShowProfileMenu(!showProfileMenu);
+                  setShowNotifications(false);
+                  setShowAlertHistory(false);
+                }}
                 className="flex items-center justify-center p-0.5 rounded-full border border-gray-200 hover:border-gray-300 transition-colors"
                 title={currentUser.displayName}
               >
@@ -349,6 +793,176 @@ export default function Navbar({
           </button>
         )}
       </div>
+
+      {/* 3. Notification Detail Modal */}
+      {selectedNotifDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div 
+            className="bg-white rounded-3xl max-w-md w-full overflow-hidden shadow-2xl border border-gray-150 animate-in fade-in zoom-in-95 duration-200"
+            style={{ direction: language === 'ar' ? 'rtl' : 'ltr' }}
+          >
+            <div className="p-6">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className="w-10 h-10 rounded-full bg-red-50 flex items-center justify-center text-xl shrink-0 border border-red-150">
+                    {selectedNotifDetails.type === 'upload' ? '📹' :
+                     selectedNotifDetails.type === 'like' ? '🔥' :
+                     selectedNotifDetails.type === 'milestone' ? '🎉' :
+                     selectedNotifDetails.type === 'system' ? '💻' :
+                     selectedNotifDetails.type === 'subscribe' ? '🌟' :
+                     selectedNotifDetails.type === 'comment' ? '💬' :
+                     selectedNotifDetails.type === 'trend' ? '📈' :
+                     selectedNotifDetails.type === 'story' ? '⚡' : '🔔'}
+                  </div>
+                  <div>
+                    <span className="text-[10px] bg-red-100 text-red-700 px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider">
+                      {selectedNotifDetails.type}
+                    </span>
+                    <p className="text-[10px] text-gray-400 mt-0.5 font-mono">
+                      {language === 'ar' ? selectedNotifDetails.timeAr : selectedNotifDetails.timeEn}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedNotifDetails(null)}
+                  className="p-1.5 hover:bg-gray-100 rounded-full text-gray-400 hover:text-black transition-colors cursor-pointer"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Title & Body */}
+              <div className="space-y-2">
+                <h3 className="font-sans font-black text-lg text-gray-950 leading-snug">
+                  {language === 'ar' ? selectedNotifDetails.titleAr : selectedNotifDetails.titleEn}
+                </h3>
+                <p className="text-sm text-gray-650 leading-relaxed bg-gray-50 p-4 rounded-2xl border border-gray-100 font-medium">
+                  {language === 'ar' ? selectedNotifDetails.descAr : selectedNotifDetails.descEn}
+                </p>
+              </div>
+
+              {/* Footer Actions */}
+              <div className="mt-6 flex gap-2.5 justify-end">
+                {/* Custom Context Actions */}
+                {(selectedNotifDetails.type === 'upload' || selectedNotifDetails.type === 'comment') && (
+                  <button
+                    onClick={() => {
+                      // Perform search for video
+                      const query = language === 'ar' ? selectedNotifDetails.descAr : selectedNotifDetails.descEn;
+                      setSearchQuery(query.replace(/[💬📹🚀🔥✨🌟]/g, '').trim());
+                      onWebSearchClick?.(query.replace(/[💬📹🚀🔥✨🌟]/g, '').trim());
+                      setSelectedNotifDetails(null);
+                    }}
+                    className="flex-1 sm:flex-initial px-5 py-2.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-bold text-xs rounded-xl shadow-sm transition-all duration-150 cursor-pointer text-center text-red-600 hover:text-white"
+                  >
+                    {language === 'ar' ? 'البحث عن الفيديو ومتابعته 📹' : 'Search & Watch Video 📹'}
+                  </button>
+                )}
+
+                {selectedNotifDetails.type === 'story' && (
+                  <button
+                    onClick={() => {
+                      setSelectedNotifDetails(null);
+                    }}
+                    className="flex-1 sm:flex-initial px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all duration-150 cursor-pointer text-center text-red-600 hover:text-white"
+                  >
+                    {language === 'ar' ? 'عرض القصص والقصيرة ⚡' : 'Go to Stories & Shorts ⚡'}
+                  </button>
+                )}
+
+                <button
+                  onClick={() => setSelectedNotifDetails(null)}
+                  className="px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold text-xs rounded-xl transition-all duration-150 cursor-pointer"
+                >
+                  {language === 'ar' ? 'إغلاق' : 'Close'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. Alert/Toast Detail Modal */}
+      {selectedAlertDetails && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+          <div 
+            className="bg-white rounded-3xl max-w-md w-full overflow-hidden shadow-2xl border border-gray-150 animate-in fade-in zoom-in-95 duration-200"
+            style={{ direction: language === 'ar' ? 'rtl' : 'ltr' }}
+          >
+            <div className="p-6">
+              {/* Header */}
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <div className={`w-10 h-10 rounded-full flex items-center justify-center text-xl shrink-0 border ${
+                    selectedAlertDetails.type === 'success' ? 'bg-green-50 border-green-150 text-green-600' :
+                    selectedAlertDetails.type === 'error' ? 'bg-red-50 border-red-150 text-red-600' :
+                    'bg-blue-50 border-blue-150 text-blue-600'
+                  }`}>
+                    {selectedAlertDetails.type === 'success' && <CheckCircle2 className="w-5 h-5" />}
+                    {selectedAlertDetails.type === 'info' && <Info className="w-5 h-5" />}
+                    {selectedAlertDetails.type === 'error' && <AlertCircle className="w-5 h-5" />}
+                  </div>
+                  <div>
+                    <span className={`text-[10px] px-2.5 py-0.5 rounded-full font-bold uppercase tracking-wider ${
+                      selectedAlertDetails.type === 'success' ? 'bg-green-100 text-green-800' :
+                      selectedAlertDetails.type === 'error' ? 'bg-red-100 text-red-800' :
+                      'bg-blue-100 text-blue-800'
+                    }`}>
+                      {selectedAlertDetails.type === 'success' ? (language === 'ar' ? 'نجاح' : 'Success') :
+                       selectedAlertDetails.type === 'error' ? (language === 'ar' ? 'خطأ' : 'Error') :
+                       (language === 'ar' ? 'تنبيه' : 'Alert Info')}
+                    </span>
+                    <p className="text-[10px] text-gray-400 mt-0.5 font-mono">
+                      {formatAlertTime(selectedAlertDetails.timestamp)}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setSelectedAlertDetails(null)}
+                  className="p-1.5 hover:bg-gray-100 rounded-full text-gray-400 hover:text-black transition-colors cursor-pointer"
+                >
+                  <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </div>
+
+              {/* Title & Body */}
+              <div className="space-y-2">
+                <h3 className="font-sans font-black text-base text-gray-900 leading-snug">
+                  {language === 'ar' ? 'تفاصيل التنبيه / تفاصيل النظام' : 'Alert / System Log Details'}
+                </h3>
+                <p className="text-sm text-gray-700 leading-relaxed bg-gray-50 p-4 rounded-2xl border border-gray-100 font-medium break-words whitespace-pre-line select-all">
+                  {selectedAlertDetails.message}
+                </p>
+              </div>
+
+              {/* Footer Actions */}
+              <div className="mt-6 flex gap-2 justify-end">
+                <button
+                  onClick={() => {
+                    onRemoveAlert?.(selectedAlertDetails.id);
+                    setSelectedAlertDetails(null);
+                  }}
+                  className="px-4 py-2 bg-red-50 hover:bg-red-100 text-red-600 font-bold text-xs rounded-xl transition-all duration-150 cursor-pointer"
+                >
+                  {language === 'ar' ? 'حذف من السجل' : 'Delete Log'}
+                </button>
+
+                <button
+                  onClick={() => setSelectedAlertDetails(null)}
+                  className="px-5 py-2.5 bg-gray-150 hover:bg-gray-200 text-gray-800 font-bold text-xs rounded-xl transition-all duration-150 cursor-pointer"
+                >
+                  {language === 'ar' ? 'إغلاق' : 'Close'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </header>
   );
 }

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { ThumbsUp, ThumbsDown, Share2, CornerDownRight, MoreHorizontal, Send, Play, Clock, AlertCircle, ExternalLink, Download, X, Sparkles, Loader2, Brain, MessageSquare, User as UserIcon } from 'lucide-react';
-import { Video, Comment, Channel, User } from '../types';
+import { ThumbsUp, ThumbsDown, Share2, CornerDownRight, MoreHorizontal, Send, Play, Clock, AlertCircle, ExternalLink, Download, X, Sparkles, Loader2, Brain, MessageSquare, User as UserIcon, Bookmark, Trash2 } from 'lucide-react';
+import { Video, Comment, Channel, User, VideoBookmark } from '../types';
 import VideoPlayer from './VideoPlayer';
 import AIVideoAnalyzer from './AIVideoAnalyzer';
 
@@ -23,6 +23,11 @@ interface WatchPageProps {
   onToggleDownload?: (quality?: '1080p' | '720p' | 'mp3') => void;
   onChannelClick?: (channelId: string) => void;
   language: string;
+  bookmarks?: VideoBookmark[];
+  onAddBookmark?: (videoId: string, timestamp: number, note: string) => void;
+  onDeleteBookmark?: (bookmarkId: string) => void;
+  seekToTime?: number | null;
+  onSeekComplete?: () => void;
 }
 
 export default function WatchPage({
@@ -44,13 +49,26 @@ export default function WatchPage({
   onToggleDownload,
   onChannelClick,
   language,
+  bookmarks = [],
+  onAddBookmark,
+  onDeleteBookmark,
+  seekToTime = null,
+  onSeekComplete,
 }: WatchPageProps) {
   const [commentInput, setCommentInput] = useState('');
+  
+  // Bookmarking states
+  const [currentPlaybackTime, setCurrentPlaybackTime] = useState(0);
+  const [videoDuration, setVideoDuration] = useState(0);
+  const [showBookmarkForm, setShowBookmarkForm] = useState(false);
+  const [bookmarkNote, setBookmarkNote] = useState('');
+  const [localSeekTime, setLocalSeekTime] = useState<number | null>(null);
   const [showDownloadWizard, setShowDownloadWizard] = useState(false);
   const [downloadQuality, setDownloadQuality] = useState<'1080p' | '720p' | 'mp3'>('1080p');
   const [downloadProgress, setDownloadProgress] = useState(0);
   const [downloadStatus, setDownloadStatus] = useState<'idle' | 'downloading' | 'completed'>('idle');
   const [wizardStepMessage, setWizardStepMessage] = useState('');
+  const [isAmbientGlow, setIsAmbientGlow] = useState(true);
 
   // YouTube-style Ask AI state
   const [showAIChatPanel, setShowAIChatPanel] = useState(false);
@@ -258,13 +276,38 @@ export default function WatchPage({
       
       {/* Left Columns: Player, Details, Comments */}
       <div className="lg:col-span-2 space-y-5">
-        {/* Custom Video Player Component */}
-        <VideoPlayer 
-          videoUrl={video.videoUrl} 
-          thumbnailUrl={video.thumbnailUrl} 
-          onProgressUpdate={onProgressUpdate} 
-          onVideoEnded={onVideoEnded}
-        />
+        {/* Custom Video Player Component wrapped with Cinematic Ambient Glow */}
+        <div className="relative rounded-2xl">
+          {isAmbientGlow && (
+            <div className="absolute -inset-4 -z-10 overflow-hidden pointer-events-none filter blur-[100px] opacity-40 scale-105 transition-all duration-1000 animate-pulse">
+              <img 
+                src={video.thumbnailUrl} 
+                alt="" 
+                className="w-full h-full object-cover rounded-3xl"
+                referrerPolicy="no-referrer"
+              />
+            </div>
+          )}
+          <VideoPlayer 
+            videoUrl={video.videoUrl} 
+            thumbnailUrl={video.thumbnailUrl} 
+            onProgressUpdate={onProgressUpdate} 
+            onVideoEnded={onVideoEnded}
+            onTimeUpdate={(time, dur) => {
+              setCurrentPlaybackTime(time);
+              setVideoDuration(dur);
+            }}
+            seekToTime={localSeekTime !== null ? localSeekTime : seekToTime}
+            onSeekComplete={() => {
+              if (localSeekTime !== null) {
+                setLocalSeekTime(null);
+              }
+              if (onSeekComplete) {
+                onSeekComplete();
+              }
+            }}
+          />
+        </div>
 
         {/* YouTube Playback Error Helper Banner */}
         {youtubeId && (
@@ -395,11 +438,99 @@ export default function WatchPage({
                 className="flex items-center gap-1.5 bg-gradient-to-r from-indigo-50 to-indigo-100/60 border border-indigo-200 hover:border-indigo-300 hover:bg-indigo-100 text-indigo-700 px-4 py-2 rounded-full text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-xs whitespace-nowrap"
                 title={language === 'ar' ? 'طرح سؤال بالذكاء الاصطناعي' : 'Ask AI a Question'}
               >
-                <Sparkles className="w-3.5 h-3.5 text-indigo-600 animate-pulse" />
+                <Brain className="w-3.5 h-3.5 text-indigo-600 animate-pulse" />
                 <span>{language === 'ar' ? 'طرح سؤال (AI) ✨' : 'Ask AI ✨'}</span>
+              </button>
+
+              {/* Bookmark Timestamp Button */}
+              {onAddBookmark && (
+                <button
+                  onClick={() => setShowBookmarkForm(!showBookmarkForm)}
+                  className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold transition-all active:scale-95 cursor-pointer border ${
+                    showBookmarkForm
+                      ? 'bg-indigo-600 border-indigo-500 text-white hover:bg-indigo-700'
+                      : 'bg-gray-50 border-gray-200 hover:bg-gray-100 text-gray-700 hover:text-indigo-600'
+                  }`}
+                  title={language === 'ar' ? 'إضافة علامة مرجعية عند الوقت الحالي' : 'Bookmark current timestamp'}
+                >
+                  <Bookmark className="w-3.5 h-3.5" />
+                  <span>{language === 'ar' ? 'حفظ علامة 🔖' : 'Bookmark'}</span>
+                </button>
+              )}
+
+              {/* Cinematic Ambient Glow Toggle */}
+              <button
+                onClick={() => setIsAmbientGlow(!isAmbientGlow)}
+                className={`flex items-center gap-1.5 px-4 py-2 rounded-full text-xs font-bold transition-all active:scale-95 cursor-pointer border ${
+                  isAmbientGlow
+                    ? 'bg-amber-500/10 border-amber-300 text-amber-700 font-extrabold shadow-sm'
+                    : 'bg-gray-50 border-gray-200 hover:bg-gray-100 text-gray-700'
+                }`}
+                title={language === 'ar' ? 'تفعيل الإضاءة السينمائية المحيطة' : 'Toggle Cinematic Ambient Glow'}
+              >
+                <Sparkles className={`w-3.5 h-3.5 ${isAmbientGlow ? 'text-amber-500 animate-spin' : 'text-gray-400'}`} />
+                <span>{language === 'ar' ? (isAmbientGlow ? 'الإضاءة: نشطة ✨' : 'إضاءة سينمائية') : (isAmbientGlow ? 'Glow: ON ✨' : 'Ambient Glow')}</span>
               </button>
             </div>
           </div>
+
+          {/* Bookmark creation form inline */}
+          {showBookmarkForm && (
+            <div className="bg-indigo-50/40 border border-indigo-100/70 rounded-2xl p-4 space-y-3 animate-fadeIn my-2">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-bold text-indigo-800 uppercase tracking-wider font-mono flex items-center gap-1">
+                    <span>🔖</span>
+                    {language === 'ar' ? 'علامة مرجعية جديدة' : 'Add New Bookmark'}
+                  </span>
+                  <span className="text-xs font-mono font-bold px-2 py-0.5 bg-indigo-100 text-indigo-800 rounded-lg">
+                    {(() => {
+                      const mins = Math.floor(currentPlaybackTime / 60);
+                      const secs = Math.floor(currentPlaybackTime % 60);
+                      return `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+                    })()}
+                  </span>
+                </div>
+                <button 
+                  onClick={() => setShowBookmarkForm(false)}
+                  className="text-gray-400 hover:text-gray-600 cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={bookmarkNote}
+                  onChange={(e) => setBookmarkNote(e.target.value)}
+                  placeholder={language === 'ar' ? 'ملاحظة اختيارية (مثال: جزء ممتع، شرح مذهل)' : 'Optional description (e.g., Amazing explanation, guitar solo)'}
+                  className="flex-1 text-xs border border-gray-200 bg-white rounded-xl px-3 py-2 focus:outline-none focus:border-indigo-400 font-sans"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      if (onAddBookmark) {
+                        onAddBookmark(video.id, currentPlaybackTime, bookmarkNote);
+                        setBookmarkNote('');
+                        setShowBookmarkForm(false);
+                      }
+                    }
+                  }}
+                />
+                <button
+                  onClick={() => {
+                    if (onAddBookmark) {
+                      onAddBookmark(video.id, currentPlaybackTime, bookmarkNote);
+                      setBookmarkNote('');
+                      setShowBookmarkForm(false);
+                    }
+                  }}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs px-4 py-2 rounded-xl transition-all active:scale-95 cursor-pointer whitespace-nowrap"
+                >
+                  {language === 'ar' ? 'إضافة' : 'Save'}
+                </button>
+              </div>
+            </div>
+          )}
 
           <hr className="border-gray-100" />
 
@@ -446,6 +577,72 @@ export default function WatchPage({
 
         {/* AI Video Assistant & Analyzer */}
         <AIVideoAnalyzer video={video} />
+
+        {/* Bookmarks for this Video Section */}
+        {bookmarks && bookmarks.filter(b => b.videoId === video.id).length > 0 && (
+          <div className="bg-white p-5 rounded-2xl border border-gray-200 space-y-4 animate-fadeIn">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <h3 className="font-sans font-bold text-sm text-gray-900 flex items-center gap-1.5">
+                  <span className="text-base">🔖</span>
+                  <span>{language === 'ar' ? 'العلامات المرجعية لهذا الفيديو' : 'Bookmarks in this Video'}</span>
+                </h3>
+                <span className="text-xs bg-indigo-50 border border-indigo-100 text-indigo-700 px-2 py-0.5 rounded-full font-mono font-bold">
+                  {bookmarks.filter(b => b.videoId === video.id).length}
+                </span>
+              </div>
+              <span className="text-[10px] text-gray-400 font-sans italic">
+                {language === 'ar' ? 'انقر لتخطي الفيديو إلى الوقت المحدد' : 'Click to jump to timestamp'}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {bookmarks
+                .filter(b => b.videoId === video.id)
+                .map((bookmark) => (
+                  <div
+                    key={bookmark.id}
+                    onClick={() => {
+                      setLocalSeekTime(bookmark.timestamp);
+                    }}
+                    className="group relative flex items-start justify-between gap-3 p-3 bg-indigo-50/15 hover:bg-indigo-50/45 border border-indigo-100/30 rounded-xl cursor-pointer transition-all active:scale-[0.99] hover:border-indigo-200/50"
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 mb-1.5">
+                        <span className="text-[10px] font-extrabold text-indigo-700 bg-indigo-50/80 border border-indigo-100/60 px-1.5 py-0.5 rounded-md font-mono shrink-0">
+                          {bookmark.timestampLabel}
+                        </span>
+                        <span className="text-xs font-bold text-gray-800 font-sans truncate flex-1 group-hover:text-indigo-700 transition-colors">
+                          {bookmark.note || (language === 'ar' ? 'علامة مرجعية' : 'Bookmark')}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-gray-400 font-sans">
+                        {language === 'ar' ? 'أضيف: ' : 'Added: '}
+                        {new Date(bookmark.createdAt).toLocaleDateString(language === 'ar' ? 'ar-EG' : 'en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                        })}
+                      </p>
+                    </div>
+
+                    {/* Delete button inside card */}
+                    {onDeleteBookmark && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onDeleteBookmark(bookmark.id);
+                        }}
+                        className="opacity-0 group-hover:opacity-100 p-1 bg-white hover:bg-red-50 text-gray-400 hover:text-red-600 rounded-lg transition-all border border-gray-100/60 cursor-pointer shadow-2xs shrink-0 self-center"
+                        title={language === 'ar' ? 'حذف العلامة' : 'Delete bookmark'}
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                ))}
+            </div>
+          </div>
+        )}
 
         {/* Comments Section */}
         <div className="bg-white p-5 rounded-2xl border border-gray-200 space-y-5">

@@ -10,9 +10,20 @@ interface VideoPlayerProps {
   thumbnailUrl: string;
   onProgressUpdate?: (progress: number) => void;
   onVideoEnded?: () => void;
+  onTimeUpdate?: (currentTime: number, duration: number) => void;
+  seekToTime?: number | null;
+  onSeekComplete?: () => void;
 }
 
-export default function VideoPlayer({ videoUrl, thumbnailUrl, onProgressUpdate, onVideoEnded }: VideoPlayerProps) {
+export default function VideoPlayer({ 
+  videoUrl, 
+  thumbnailUrl, 
+  onProgressUpdate, 
+  onVideoEnded,
+  onTimeUpdate,
+  seekToTime,
+  onSeekComplete
+}: VideoPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const lastUpdatedPercentRef = useRef<number>(-1);
@@ -75,6 +86,28 @@ export default function VideoPlayer({ videoUrl, thumbnailUrl, onProgressUpdate, 
     }
   }, [currentTime, duration, onProgressUpdate]);
 
+  // Report raw current time & duration changes to parent container
+  useEffect(() => {
+    if (onTimeUpdate) {
+      onTimeUpdate(currentTime, duration);
+    }
+  }, [currentTime, duration, onTimeUpdate]);
+
+  // Seek to time from parent prop
+  useEffect(() => {
+    if (seekToTime !== undefined && seekToTime !== null && videoRef.current) {
+      videoRef.current.currentTime = seekToTime;
+      if (!isPlaying) {
+        videoRef.current.play()
+          .then(() => setIsPlaying(true))
+          .catch(err => console.log('Playback error:', err));
+      }
+      if (onSeekComplete) {
+        onSeekComplete();
+      }
+    }
+  }, [seekToTime, onSeekComplete]);
+
   const handleMouseMove = () => {
     setShowControls(true);
   };
@@ -135,6 +168,14 @@ export default function VideoPlayer({ videoUrl, thumbnailUrl, onProgressUpdate, 
       videoRef.current.playbackRate = speed;
       setPlaybackSpeed(speed);
       setShowSpeedMenu(false);
+      try {
+        const saved = localStorage.getItem('metatube_settings');
+        const parsed = saved ? JSON.parse(saved) : {};
+        parsed.playbackSpeed = speed;
+        localStorage.setItem('metatube_settings', JSON.stringify(parsed));
+      } catch (e) {
+        console.error(e);
+      }
     }
   };
 
@@ -492,36 +533,26 @@ export default function VideoPlayer({ videoUrl, thumbnailUrl, onProgressUpdate, 
               </span>
             </button>
 
-            {/* Playback speed selector */}
-            <div className="relative">
-              <button
-                onClick={() => {
-                  setShowSpeedMenu(!showSpeedMenu);
-                  setShowQualityMenu(false);
-                }}
-                className="text-xs font-semibold px-2 py-1 rounded bg-zinc-900/60 hover:bg-zinc-850 border border-zinc-800 text-zinc-300 hover:text-white transition-colors"
-                title="Speed"
-              >
-                {playbackSpeed === 1 ? 'Normal' : `${playbackSpeed}x`}
-              </button>
-
-              {showSpeedMenu && (
-                <div className="absolute bottom-8 right-0 bg-zinc-900 border border-zinc-800 rounded-lg py-1 w-24 shadow-xl z-20">
-                  {[0.5, 1, 1.5, 2].map(speed => (
-                    <button
-                      key={speed}
-                      onClick={() => changePlaybackSpeed(speed)}
-                      className={`w-full text-left px-3 py-1.5 text-xs transition-colors ${
-                        playbackSpeed === speed 
-                          ? 'bg-red-600/10 text-red-500 font-semibold' 
-                          : 'text-zinc-400 hover:bg-zinc-850 hover:text-white'
-                      }`}
-                    >
-                      {speed === 1 ? 'Normal' : `${speed}x`}
-                    </button>
-                  ))}
-                </div>
-              )}
+            {/* Playback speed selector directly inside controller overlay */}
+            <div className="flex items-center bg-zinc-900/90 border border-zinc-800 rounded-lg p-0.5 select-none" title="Playback Speed">
+              <span className="text-[10px] uppercase font-bold tracking-wider text-zinc-500 px-2 font-sans select-none hidden md:inline">
+                {appLanguage === 'ar' ? 'السرعة' : 'Speed'}
+              </span>
+              <div className="flex items-center gap-0.5">
+                {[0.5, 1, 1.5, 2].map(speed => (
+                  <button
+                    key={speed}
+                    onClick={() => changePlaybackSpeed(speed)}
+                    className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${
+                      playbackSpeed === speed
+                        ? 'bg-red-600 text-white shadow-sm font-extrabold'
+                        : 'text-zinc-400 hover:text-white hover:bg-zinc-800/80'
+                    }`}
+                  >
+                    {speed === 1 ? '1x' : `${speed}x`}
+                  </button>
+                ))}
+              </div>
             </div>
 
             {/* Simulated Quality selector */}

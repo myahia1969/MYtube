@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   INITIAL_VIDEOS, INITIAL_COMMENTS, INITIAL_CHANNELS, CURRENT_USER 
 } from './data';
-import { Video, Comment, Channel, User, Category, Playlist } from './types';
+import { Video, Comment, Channel, User, Category, Playlist, VideoBookmark } from './types';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import VideoCard from './components/VideoCard';
@@ -16,9 +16,12 @@ import ShortcutsHelpModal from './components/ShortcutsHelpModal';
 import ChannelProfileView from './components/ChannelProfileView';
 import ShortsView from './components/ShortsView';
 import PlaylistsView from './components/PlaylistsView';
+import LiveHubView from './components/LiveHubView';
+import ChatHubView from './components/ChatHubView';
 import ConfirmModal from './components/ConfirmModal';
 import StoriesSection from './components/StoriesSection';
-import { Sparkles, Terminal, LogIn, LogOut, ArrowUp, Zap, HelpCircle, Clock, HardDrive, Trash2, Sliders, AlertTriangle, TrendingDown, RefreshCw, CheckCircle2, Search, X } from 'lucide-react';
+import MiniPlayer from './components/MiniPlayer';
+import { Sparkles, Terminal, LogIn, LogOut, ArrowUp, Zap, HelpCircle, Clock, HardDrive, Trash2, Sliders, AlertTriangle, TrendingDown, RefreshCw, CheckCircle2, Search, X, Download, FileSpreadsheet } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts';
 
@@ -234,10 +237,207 @@ export default function App() {
 
   const [historySort, setHistorySort] = useState<'recent' | 'oldest' | 'progress'>('recent');
   const [downloadsSort, setDownloadsSort] = useState<'date' | 'size' | 'quality'>('date');
+  const [downloadsGroupMode, setDownloadsGroupMode] = useState<'none' | 'category' | 'folder'>(() => {
+    const saved = localStorage.getItem('metatube_downloads_group_mode');
+    return (saved as 'none' | 'category' | 'folder') || 'none';
+  });
+  const [downloadsFolders, setDownloadsFolders] = useState<Record<string, string>>(() => {
+    const saved = localStorage.getItem('metatube_downloads_folders');
+    try {
+      return saved ? JSON.parse(saved) : {};
+    } catch (e) {
+      return {};
+    }
+  });
+  const [showNewFolderModal, setShowNewFolderModal] = useState<boolean>(false);
+  const [newFolderVideoId, setNewFolderVideoId] = useState<string | null>(null);
+  const [newFolderInput, setNewFolderInput] = useState<string>('');
+
+  useEffect(() => {
+    localStorage.setItem('metatube_downloads_group_mode', downloadsGroupMode);
+  }, [downloadsGroupMode]);
+
+  useEffect(() => {
+    localStorage.setItem('metatube_downloads_folders', JSON.stringify(downloadsFolders));
+  }, [downloadsFolders]);
+
+  const [draggedOverGroup, setDraggedOverGroup] = useState<string | null>(null);
+
+  // Auto-Cleanup Scheduling states
+  const [autoCleanupEnabled, setAutoCleanupEnabled] = useState<boolean>(() => {
+    const saved = localStorage.getItem('metatube_autocleanup_enabled');
+    return saved === 'true';
+  });
+  const [autoCleanupSchedule, setAutoCleanupSchedule] = useState<'daily' | 'weekly' | 'monthly'>(() => {
+    const saved = localStorage.getItem('metatube_autocleanup_schedule');
+    return (saved as 'daily' | 'weekly' | 'monthly') || 'weekly';
+  });
+  const [lastAutoCleanupRun, setLastAutoCleanupRun] = useState<string>(() => {
+    return localStorage.getItem('metatube_autocleanup_last_run') || '';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('metatube_autocleanup_enabled', String(autoCleanupEnabled));
+  }, [autoCleanupEnabled]);
+
+  useEffect(() => {
+    localStorage.setItem('metatube_autocleanup_schedule', autoCleanupSchedule);
+  }, [autoCleanupSchedule]);
+
+  useEffect(() => {
+    localStorage.setItem('metatube_autocleanup_last_run', lastAutoCleanupRun);
+  }, [lastAutoCleanupRun]);
+
+  // Background Auto-Cleanup scheduler check
+  useEffect(() => {
+    if (!autoCleanupEnabled) return;
+
+    const checkAndRunCleanup = () => {
+      const now = new Date();
+      let runCleanup = false;
+
+      if (!lastAutoCleanupRun) {
+        runCleanup = true;
+      } else {
+        const lastRunDate = new Date(lastAutoCleanupRun);
+        const diffMs = now.getTime() - lastRunDate.getTime();
+        const diffDays = diffMs / (24 * 60 * 60 * 1000);
+
+        if (autoCleanupSchedule === 'daily' && diffDays >= 1) {
+          runCleanup = true;
+        } else if (autoCleanupSchedule === 'weekly' && diffDays >= 7) {
+          runCleanup = true;
+        } else if (autoCleanupSchedule === 'monthly' && diffDays >= 30) {
+          runCleanup = true;
+        }
+      }
+
+      if (runCleanup) {
+        const thresholdMs = cleanupThresholdDays * 24 * 60 * 60 * 1000;
+        let cleanedCount = 0;
+        let savedSpace = 0;
+
+        setDownloads(prev => {
+          const toKeep: string[] = [];
+          const toRemove: string[] = [];
+
+          prev.forEach(id => {
+            const meta = downloadsMetadata[id];
+            if (meta) {
+              const downloadDate = new Date(meta.downloadedAt);
+              if (now.getTime() - downloadDate.getTime() > thresholdMs) {
+                toRemove.push(id);
+                cleanedCount++;
+                savedSpace += meta.sizeMb;
+              } else {
+                toKeep.push(id);
+              }
+            } else {
+              toKeep.push(id);
+            }
+          });
+
+          if (cleanedCount > 0) {
+            setDownloadsMetadata(meta => {
+              const newMeta = { ...meta };
+              toRemove.forEach(id => {
+                delete newMeta[id];
+              });
+              return newMeta;
+            });
+
+            triggerToast(
+              settings.language === 'ar'
+                ? `[تنظيف تلقائي جدولي] تم بنجاح حذف ${cleanedCount} ملفات قديمة لتوفير ${savedSpace.toFixed(1)} ميجابايت!`
+                : `[Auto-Cleanup Schedule] Successfully deleted ${cleanedCount} old downloads, reclaiming ${savedSpace.toFixed(1)} MB!`,
+              'info'
+            );
+            return toKeep;
+          } else {
+            return prev;
+          }
+        });
+
+        setLastAutoCleanupRun(now.toISOString());
+      }
+    };
+
+    // Run check immediately on mount or config change
+    checkAndRunCleanup();
+  }, [autoCleanupEnabled, autoCleanupSchedule, lastAutoCleanupRun, cleanupThresholdDays, downloadsMetadata]);
 
   // Navigation states
   const [currentView, setView] = useState<string>('home'); // 'home' | 'watch' | 'uploads' | 'liked' | 'dev-console' | 'history'
   const [activeVideo, setActiveVideo] = useState<Video | null>(null);
+  const [isMiniPlayerClosed, setIsMiniPlayerClosed] = useState<boolean>(false);
+
+  // Video bookmarks state & seeking controls
+  const [bookmarks, setBookmarks] = useState<VideoBookmark[]>(() => {
+    const saved = localStorage.getItem('metatube_bookmarks');
+    return saved ? JSON.parse(saved) : [];
+  });
+
+  useEffect(() => {
+    localStorage.setItem('metatube_bookmarks', JSON.stringify(bookmarks));
+  }, [bookmarks]);
+
+  const [seekToTime, setSeekToTime] = useState<number | null>(null);
+
+  const handleAddBookmark = (videoId: string, timestamp: number, note: string) => {
+    const video = videos.find(v => v.id === videoId);
+    if (!video) return;
+
+    const mins = Math.floor(timestamp / 60);
+    const secs = Math.floor(timestamp % 60);
+    const timestampLabel = `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+
+    const newBookmark: VideoBookmark = {
+      id: `bookmark_${Date.now()}`,
+      videoId,
+      videoTitle: video.title,
+      thumbnailUrl: video.thumbnailUrl,
+      timestamp,
+      timestampLabel,
+      note: note.trim() || (settings.language === 'ar' ? 'علامة مرجعية' : 'Bookmark'),
+      createdAt: new Date().toISOString()
+    };
+
+    setBookmarks(prev => [newBookmark, ...prev]);
+    triggerToast(
+      settings.language === 'ar'
+        ? 'تمت إضافة علامة مرجعية بنجاح! 🔖'
+        : 'Bookmark added successfully! 🔖',
+      'success'
+    );
+  };
+
+  const handleDeleteBookmark = (bookmarkId: string) => {
+    setBookmarks(prev => prev.filter(b => b.id !== bookmarkId));
+    triggerToast(
+      settings.language === 'ar'
+        ? 'تم حذف العلامة المرجعية.'
+        : 'Bookmark deleted.',
+      'info'
+    );
+  };
+
+  const handleBookmarkClick = (bookmark: VideoBookmark) => {
+    const video = videos.find(v => v.id === bookmark.videoId);
+    if (video) {
+      handleVideoSelect(video);
+      setSeekToTime(bookmark.timestamp);
+      setMobileSidebarOpen(false);
+    } else {
+      triggerToast(
+        settings.language === 'ar'
+          ? 'تعذر العثور على الفيديو.'
+          : 'Could not find the associated video.',
+        'error'
+      );
+    }
+  };
+  const [miniPlayerMuted, setMiniPlayerMuted] = useState<boolean>(true);
+  const [miniPlayerPlaying, setMiniPlayerPlaying] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [offlineSearchQuery, setOfflineSearchQuery] = useState('');
   const [activeChannelFilter, setActiveChannelFilter] = useState<string | null>(null);
@@ -442,11 +642,139 @@ export default function App() {
     localStorage.setItem('metatube_playlists', JSON.stringify(playlists));
   }, [playlists]);
 
+  // Alert History Item interface
+  interface AlertHistoryItem {
+    id: string;
+    message: string;
+    type: 'success' | 'info' | 'error';
+    timestamp: number;
+    isRead: boolean;
+  }
+
   // Toast notification state
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'info' | 'error' } | null>(null);
+  const [alertHistory, setAlertHistory] = useState<AlertHistoryItem[]>(() => {
+    const saved = localStorage.getItem('metatube_alert_history');
+    if (saved) {
+      try {
+        return JSON.parse(saved);
+      } catch (e) {}
+    }
+    return [];
+  });
 
   const triggerToast = (message: string, type: 'success' | 'info' | 'error' = 'success') => {
     setToast({ message, type });
+    
+    const newAlert: AlertHistoryItem = {
+      id: String(Date.now() + Math.random()),
+      message,
+      type,
+      timestamp: Date.now(),
+      isRead: false
+    };
+
+    setAlertHistory(prev => {
+      const updated = [newAlert, ...prev].slice(0, 50);
+      localStorage.setItem('metatube_alert_history', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleAssignVideoToFolder = (videoId: string, folderName: string) => {
+    if (folderName === '__new__') {
+      setNewFolderVideoId(videoId);
+      setNewFolderInput('');
+      setShowNewFolderModal(true);
+    } else {
+      setDownloadsFolders(prev => {
+        const updated = { ...prev };
+        if (!folderName) {
+          delete updated[videoId];
+        } else {
+          updated[videoId] = folderName;
+        }
+        return updated;
+      });
+      triggerToast(
+        settings.language === 'ar' 
+          ? `تم تحديث المجلد بنجاح! 📁` 
+          : `Folder updated successfully! 📁`,
+        'success'
+      );
+    }
+  };
+
+  const handleAssignVideoToCategory = (videoId: string, categoryName: string) => {
+    setVideos(prev => {
+      const updated = prev.map(v => {
+        if (v.id === videoId) {
+          return { ...v, category: categoryName };
+        }
+        return v;
+      });
+      localStorage.setItem('metatube_videos', JSON.stringify(updated));
+      return updated;
+    });
+    triggerToast(
+      settings.language === 'ar' 
+        ? `تم تحديث التصنيف بنجاح! 📁` 
+        : `Category updated successfully! 📁`,
+      'success'
+    );
+  };
+
+  const handleCreateNewFolder = () => {
+    const trimmed = newFolderInput.trim();
+    if (!trimmed) {
+      triggerToast(
+        settings.language === 'ar' ? 'يرجى كتابة اسم مجلد صالح!' : 'Please enter a valid folder name!',
+        'error'
+      );
+      return;
+    }
+
+    if (newFolderVideoId) {
+      setDownloadsFolders(prev => ({
+        ...prev,
+        [newFolderVideoId]: trimmed
+      }));
+      triggerToast(
+        settings.language === 'ar' 
+          ? `تم إنشاء مجلد "${trimmed}" بنجاح! 📁` 
+          : `Folder "${trimmed}" created! 📁`,
+        'success'
+      );
+    }
+    setShowNewFolderModal(false);
+    setNewFolderVideoId(null);
+    setNewFolderInput('');
+  };
+
+  const handleClearAlertHistory = () => {
+    setAlertHistory([]);
+    localStorage.removeItem('metatube_alert_history');
+  };
+
+  const handleMarkAlertsAsRead = (id?: string) => {
+    setAlertHistory(prev => {
+      const updated = prev.map(item => {
+        if (id) {
+          return item.id === id ? { ...item, isRead: true } : item;
+        }
+        return { ...item, isRead: true };
+      });
+      localStorage.setItem('metatube_alert_history', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  const handleRemoveAlert = (id: string) => {
+    setAlertHistory(prev => {
+      const updated = prev.filter(item => item.id !== id);
+      localStorage.setItem('metatube_alert_history', JSON.stringify(updated));
+      return updated;
+    });
   };
 
   useEffect(() => {
@@ -495,6 +823,8 @@ export default function App() {
   const handleVideoSelect = (video: Video) => {
     setActiveVideo(video);
     setView('watch');
+    setIsMiniPlayerClosed(false);
+    setMiniPlayerPlaying(true);
 
     // Track watched video ID (moving it to the front if it already exists, ensuring no duplicate visual rows)
     setHistory(prev => {
@@ -690,6 +1020,145 @@ export default function App() {
         return prev;
       }
     });
+  };
+
+  const handleTriggerManualAutoCleanupCheck = () => {
+    const now = new Date();
+    const thresholdMs = cleanupThresholdDays * 24 * 60 * 60 * 1000;
+    
+    let cleanedCount = 0;
+    let savedSpace = 0;
+    
+    setDownloads(prev => {
+      const toKeep: string[] = [];
+      const toRemove: string[] = [];
+      
+      prev.forEach(id => {
+        const meta = downloadsMetadata[id];
+        if (meta) {
+          const downloadDate = new Date(meta.downloadedAt);
+          if (now.getTime() - downloadDate.getTime() > thresholdMs) {
+            toRemove.push(id);
+            cleanedCount++;
+            savedSpace += meta.sizeMb;
+          } else {
+            toKeep.push(id);
+          }
+        } else {
+          toKeep.push(id);
+        }
+      });
+      
+      if (cleanedCount > 0) {
+        setDownloadsMetadata(meta => {
+          const newMeta = { ...meta };
+          toRemove.forEach(id => {
+            delete newMeta[id];
+          });
+          return newMeta;
+        });
+        
+        triggerToast(
+          settings.language === 'ar'
+            ? `[تنظيف يدوي فوري] تم العثور على ${cleanedCount} ملفات قديمة وحذفها بنجاح لتوفير ${savedSpace.toFixed(1)} ميجابايت!`
+            : `[Manual Auto-Cleanup Check] Found and deleted ${cleanedCount} old downloads, reclaiming ${savedSpace.toFixed(1)} MB!`,
+          'success'
+        );
+        return toKeep;
+      } else {
+        triggerToast(
+          settings.language === 'ar'
+            ? 'فحص التنظيف التلقائي: لم يتم العثور على أي ملفات تجاوزت مدة الاحتفاظ المحددة.'
+            : 'Auto-Cleanup Check: No downloads exceed the current retention threshold.',
+          'info'
+        );
+        return prev;
+      }
+    });
+
+    setLastAutoCleanupRun(now.toISOString());
+  };
+
+  const simulateAutoCleanupTime = (days: number) => {
+    const fakePastDate = new Date();
+    fakePastDate.setDate(fakePastDate.getDate() - days);
+    setLastAutoCleanupRun(fakePastDate.toISOString());
+    triggerToast(
+      settings.language === 'ar'
+        ? `تم محاكاة مرور ${days} أيام على آخر فحص تنظيف بنجاح!`
+        : `Successfully simulated ${days} days passing since the last automated check!`,
+      'success'
+    );
+  };
+
+  const handleExportToCSV = () => {
+    if (downloads.length === 0) {
+      triggerToast(
+        settings.language === 'ar'
+          ? 'لا توجد تنزيلات لتصديرها!'
+          : 'No downloads available to export!',
+        'error'
+      );
+      return;
+    }
+
+    const headers = [
+      'Video ID',
+      'Title',
+      'Category',
+      'Duration',
+      'Quality',
+      'Size (MB)',
+      'Downloaded At',
+      'Folder'
+    ];
+
+    const rows = downloads.map(id => {
+      const video = videos.find(v => v.id === id);
+      const meta = downloadsMetadata[id];
+      const folder = downloadsFolders[id] || '';
+      
+      const title = video ? video.title : 'Unknown Title';
+      const category = video ? video.category : 'Unknown Category';
+      const duration = video ? video.duration : '00:00';
+      const quality = meta ? meta.quality : 'N/A';
+      const sizeMb = meta ? meta.sizeMb.toFixed(1) : '0.0';
+      const downloadedAt = meta ? new Date(meta.downloadedAt).toISOString() : 'N/A';
+
+      // Escape quotes in CSV fields
+      const escape = (val: string) => `"${val.replace(/"/g, '""')}"`;
+
+      return [
+        escape(id),
+        escape(title),
+        escape(category),
+        escape(duration),
+        escape(quality),
+        escape(sizeMb),
+        escape(downloadedAt),
+        escape(folder)
+      ].join(',');
+    });
+
+    const csvContent = [headers.join(','), ...rows].join('\n');
+    
+    // Create UTF-8 BOM so Excel opens non-ASCII characters correctly
+    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `metatube_downloads_export_${Date.now()}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+
+    triggerToast(
+      settings.language === 'ar'
+        ? 'تم تصدير ملف CSV بنجاح! 📊'
+        : 'CSV exported successfully! 📊',
+      'success'
+    );
   };
 
   // Playlist actions
@@ -1257,6 +1726,11 @@ export default function App() {
         }}
         language={settings.language}
         onWebSearchClick={handleWebSearch}
+        alertHistory={alertHistory}
+        onClearAlertHistory={handleClearAlertHistory}
+        onMarkAlertsAsRead={handleMarkAlertsAsRead}
+        onRemoveAlert={handleRemoveAlert}
+        onTriggerToast={triggerToast}
       />
 
       {/* Main Panel Wrapper */}
@@ -1274,6 +1748,9 @@ export default function App() {
           onCloseMobile={() => setMobileSidebarOpen(false)}
           language={settings.language}
           onHelpShortcutsClick={() => setShowShortcutsHelpModal(true)}
+          bookmarks={bookmarks}
+          onBookmarkClick={handleBookmarkClick}
+          onDeleteBookmark={handleDeleteBookmark}
         />
 
         {/* 3. Render Views dynamically in the stage */}
@@ -1343,6 +1820,11 @@ export default function App() {
                 setView('channel');
               }}
               language={settings.language}
+              bookmarks={bookmarks}
+              onAddBookmark={handleAddBookmark}
+              onDeleteBookmark={handleDeleteBookmark}
+              seekToTime={seekToTime}
+              onSeekComplete={() => setSeekToTime(null)}
             />
           ) : currentView === 'playlists' ? (
             /* Custom user playlists management view */
@@ -1361,6 +1843,20 @@ export default function App() {
                 askConfirmation={askConfirmation}
               />
             </div>
+          ) : currentView === 'live' ? (
+            /* Custom Live Streams & Podcasts Hub View */
+            <LiveHubView
+              language={settings.language === 'ar' ? 'ar' : 'en'}
+              currentUser={currentUser}
+              onTriggerToast={triggerToast}
+            />
+          ) : currentView === 'chat' ? (
+            /* Custom Chat Hub View for Subscribers & Accounts */
+            <ChatHubView
+              language={settings.language === 'ar' ? 'ar' : 'en'}
+              currentUser={currentUser}
+              onTriggerToast={triggerToast}
+            />
           ) : (
             /* Grid Feeds (Home, Liked, Uploads, Subscribed channels) */
             <div className="p-4 md:p-6 space-y-6">
@@ -1583,6 +2079,23 @@ export default function App() {
                   )}
                   {currentView === 'downloads' && (
                     <>
+                      {/* Group By Selector */}
+                      <div className="flex items-center gap-1.5 bg-white border border-gray-200 px-3.5 py-1.5 rounded-full shadow-sm text-xs text-gray-700">
+                        <span className="font-semibold text-gray-500 font-sans">
+                          {settings.language === 'ar' ? 'تجميع حسب:' : 'Group By:'}
+                        </span>
+                        <select
+                          id="downloads-group-select"
+                          value={downloadsGroupMode}
+                          onChange={(e) => setDownloadsGroupMode(e.target.value as any)}
+                          className="bg-transparent font-bold focus:outline-none cursor-pointer pr-1 font-sans text-gray-800"
+                        >
+                          <option value="none">{settings.language === 'ar' ? 'بدون تجميع (سرد)' : 'None (Flat List)'}</option>
+                          <option value="category">{settings.language === 'ar' ? 'تصنيف الفيديو' : 'Video Category'}</option>
+                          <option value="folder">{settings.language === 'ar' ? 'مجلدات مخصصة' : 'Custom Folders'}</option>
+                        </select>
+                      </div>
+
                       {/* Sort Dropdown */}
                       <div className="flex items-center gap-1.5 bg-white border border-gray-200 px-3.5 py-1.5 rounded-full shadow-sm text-xs text-gray-700">
                         <span className="font-semibold text-gray-500 font-sans">
@@ -1673,15 +2186,159 @@ export default function App() {
                     </div>
                     
                     {/* Compact stats overview */}
-                    <div className="flex flex-wrap items-center gap-4 text-xs font-mono">
+                    <div className="flex flex-wrap items-center gap-3 text-xs font-mono">
                       <div className="px-3 py-1.5 bg-gray-50 border border-gray-200 rounded-lg text-gray-700 flex items-center gap-1.5">
                         <span className="font-sans font-medium text-gray-400">
                           {settings.language === 'ar' ? 'إجمالي المساحة المستخدمة:' : 'Total Space Used:'}
                         </span>
                         <span className="font-bold text-gray-900">{totalSpaceMb.toFixed(1)} MB</span>
                       </div>
+
+                      <button
+                        id="export-csv-btn"
+                        onClick={handleExportToCSV}
+                        className="flex items-center gap-1.5 px-3 py-1.5 bg-green-50 hover:bg-green-100 text-green-700 hover:text-green-800 border border-green-200/60 rounded-lg text-xs font-sans font-bold cursor-pointer transition-all active:scale-95 shadow-2xs"
+                        title="Export current offline downloaded videos metadata to CSV"
+                      >
+                        <FileSpreadsheet className="w-3.5 h-3.5 text-green-600" />
+                        <span>
+                          {settings.language === 'ar' ? 'تصدير إلى CSV 📊' : 'Export to CSV'}
+                        </span>
+                      </button>
                     </div>
                   </div>
+
+                  {/* Folders Management Panel */}
+                  {downloadsGroupMode === 'folder' && (
+                    <div className="bg-amber-500/5 dark:bg-amber-500/[0.02] border border-amber-500/10 p-4 rounded-2xl space-y-3">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                        <div>
+                          <h4 className="text-xs font-bold text-amber-800 dark:text-amber-400 uppercase tracking-wider flex items-center gap-1.5">
+                            <span>📁</span>
+                            {settings.language === 'ar' ? 'إدارة المجلدات المخصصة والمواضيع' : 'Custom Folders & Topics Manager'}
+                          </h4>
+                          <p className="text-[11px] text-gray-500 dark:text-zinc-400">
+                            {settings.language === 'ar'
+                              ? 'قم بإنشاء وتسمية مجلدات مخصصة لتصنيف الفيديوهات المحفوظة والتحكم بها بسهولة.'
+                              : 'Create and organize custom folders to keep your saved videos categorized by topic.'}
+                          </p>
+                        </div>
+                        
+                        {/* Inline folder creation */}
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            placeholder={settings.language === 'ar' ? 'اسم مجلد جديد...' : 'New folder name...'}
+                            value={newFolderInput}
+                            onChange={(e) => setNewFolderInput(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter') {
+                                const trimmed = newFolderInput.trim();
+                                if (trimmed) {
+                                  setDownloadsFolders(prev => ({ ...prev, [`folder_${Date.now()}`]: trimmed }));
+                                  setNewFolderInput('');
+                                  triggerToast(
+                                    settings.language === 'ar' ? `تم إنشاء المجلد "${trimmed}" بنجاح! 📁` : `Folder "${trimmed}" created! 📁`,
+                                    'success'
+                                  );
+                                }
+                              }
+                            }}
+                            className="bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-lg px-3 py-1.5 text-xs focus:outline-none focus:ring-1 focus:ring-red-500 w-44"
+                          />
+                          <button
+                            onClick={() => {
+                              const trimmed = newFolderInput.trim();
+                              if (trimmed) {
+                                setDownloadsFolders(prev => ({ ...prev, [`folder_${Date.now()}`]: trimmed }));
+                                setNewFolderInput('');
+                                triggerToast(
+                                  settings.language === 'ar' ? `تم إنشاء المجلد "${trimmed}" بنجاح! 📁` : `Folder "${trimmed}" created! 📁`,
+                                  'success'
+                                );
+                              } else {
+                                triggerToast(
+                                  settings.language === 'ar' ? 'يرجى كتابة اسم مجلد صالح!' : 'Please enter a valid folder name!',
+                                  'error'
+                                );
+                              }
+                            }}
+                            className="bg-red-600 hover:bg-red-700 text-white text-xs font-bold px-3 py-1.5 rounded-lg active:scale-95 transition-all cursor-pointer shadow-xs shrink-0"
+                          >
+                            {settings.language === 'ar' ? 'إضافة مجلد' : 'Add Folder'}
+                          </button>
+                        </div>
+                      </div>
+
+                      {/* Display active custom folders list as tags with clear buttons */}
+                      {(() => {
+                        const existingFolders = Object.values(downloadsFolders).filter((v, i, self) => v && self.indexOf(v) === i);
+                        if (existingFolders.length === 0) {
+                          return (
+                            <p className="text-[11px] text-gray-400 italic">
+                              {settings.language === 'ar' ? 'لا توجد مجلدات نشطة بعد. أضف مجلداً أعلاه أو قم بتصنيف أي فيديو مباشرة!' : 'No folders created yet. Add a folder above or classify any video card directly!'}
+                            </p>
+                          );
+                        }
+                        return (
+                          <div className="flex flex-wrap gap-2 pt-1">
+                            {existingFolders.map(folder => (
+                              <div key={folder} className="bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700/60 rounded-xl px-2.5 py-1 text-[11px] font-semibold text-gray-700 dark:text-zinc-200 flex items-center gap-1.5 shadow-2xs">
+                                <span>📁 {folder}</span>
+                                <button
+                                  onClick={() => {
+                                    askConfirmation({
+                                      title: settings.language === 'ar' ? 'حذف المجلد' : 'Delete Folder',
+                                      message: settings.language === 'ar'
+                                        ? `هل أنت متأكد من رغبتك في حذف مجلد "${folder}"؟ سيتم إلغاء تصنيف جميع الفيديوهات الموجودة فيه.`
+                                        : `Are you sure you want to delete the folder "${folder}"? This will unassign all videos inside it.`,
+                                      onConfirm: () => {
+                                        setDownloadsFolders(prev => {
+                                          const updated = { ...prev };
+                                          Object.keys(updated).forEach(k => {
+                                            if (updated[k] === folder) {
+                                              delete updated[k];
+                                            }
+                                          });
+                                          return updated;
+                                        });
+                                        triggerToast(
+                                          settings.language === 'ar' ? 'تم حذف المجلد بنجاح' : 'Folder deleted successfully',
+                                          'info'
+                                        );
+                                      },
+                                      confirmText: settings.language === 'ar' ? 'نعم، احذفه' : 'Yes, delete',
+                                      cancelText: settings.language === 'ar' ? 'إلغاء' : 'Cancel'
+                                    });
+                                  }}
+                                  className="text-gray-400 hover:text-red-600 transition-colors cursor-pointer text-xs font-bold leading-none"
+                                  title={settings.language === 'ar' ? 'حذف المجلد' : 'Delete Folder'}
+                                >
+                                  ×
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        );
+                      })()}
+                    </div>
+                  )}
+
+                  {/* Organizing tip */}
+                  {downloadsGroupMode !== 'none' && (
+                    <motion.div 
+                      initial={{ opacity: 0, y: -5 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      className="bg-red-50/80 dark:bg-red-950/20 border border-red-100/50 dark:border-red-900/30 rounded-2xl px-4 py-3 text-xs text-red-800 dark:text-red-300 flex items-center gap-2.5 shadow-3xs"
+                    >
+                      <span className="text-base shrink-0">💡</span>
+                      <p className="leading-relaxed">
+                        {settings.language === 'ar'
+                          ? 'تنظيم سريع وسلس: يمكنك الآن سحب أي بطاقة فيديو وإفلاتها مباشرة فوق اسم المجلد/التصنيف لتغيير ترتيبه وتصنيفه فوراً!'
+                          : 'Pro Tip: You can organize your library by dragging any video card and dropping it directly onto a folder/category group!'}
+                      </p>
+                    </motion.div>
+                  )}
 
                   {/* Grid Layout containing quality chart and sandbox optimizer tools */}
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -1775,6 +2432,161 @@ export default function App() {
                             </div>
                           );
                         })}
+                      </div>
+
+                      {/* Auto-Cleanup Schedule Card */}
+                      <div className="mt-5 space-y-4 bg-white dark:bg-zinc-900 border border-gray-150 dark:border-zinc-800/60 p-4 rounded-2xl shadow-xs">
+                        <div className="space-y-1">
+                          <h4 className="text-xs font-bold text-gray-700 dark:text-zinc-300 uppercase tracking-wider flex items-center gap-1.5">
+                            <span>🧹</span>
+                            {settings.language === 'ar' ? 'جدولة التنظيف التلقائي' : 'Auto-Cleanup Scheduler'}
+                          </h4>
+                          <p className="text-[11px] text-gray-500 leading-relaxed">
+                            {settings.language === 'ar'
+                              ? 'حافظ على سعة التخزين نظيفة تلقائياً عن طريق إزالة الملفات القديمة دورياً.'
+                              : 'Keep local sandbox storage lean by automatically purging expired downloads on a recurring cycle.'}
+                          </p>
+                        </div>
+
+                        {/* Enable Toggle Switch */}
+                        <div className="flex items-center justify-between p-2.5 rounded-xl bg-gray-50 dark:bg-zinc-800/40 border border-gray-100 dark:border-zinc-800/40">
+                          <div className="space-y-0.5">
+                            <span className="text-[11px] font-bold text-gray-800 dark:text-zinc-200">
+                              {settings.language === 'ar' ? 'تفعيل التنظيف الذاتي' : 'Enable Automated Purging'}
+                            </span>
+                            <p className="text-[9px] text-gray-400">
+                              {autoCleanupEnabled 
+                                ? (settings.language === 'ar' ? 'الجدولة نشطة وستعمل في الخلفية' : 'Background scheduler is ACTIVE') 
+                                : (settings.language === 'ar' ? 'معطل (يتطلب تنظيفاً يدوياً)' : 'Scheduler is currently DISABLED')}
+                            </p>
+                          </div>
+                          <button
+                            id="autocleanup-toggle"
+                            onClick={() => {
+                              setAutoCleanupEnabled(!autoCleanupEnabled);
+                              triggerToast(
+                                settings.language === 'ar'
+                                  ? (!autoCleanupEnabled ? 'تم تفعيل جدولة التنظيف التلقائي! 🧹' : 'تم تعطيل التنظيف التلقائي.')
+                                  : (!autoCleanupEnabled ? 'Auto-cleanup schedule activated! 🧹' : 'Auto-cleanup scheduler disabled.'),
+                                'info'
+                              );
+                            }}
+                            className={`relative inline-flex h-5 w-10 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                              autoCleanupEnabled ? 'bg-red-600' : 'bg-gray-200 dark:bg-zinc-700'
+                            }`}
+                          >
+                            <span
+                              className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+                                autoCleanupEnabled ? 'translate-x-5' : 'translate-x-0'
+                              }`}
+                            />
+                          </button>
+                        </div>
+
+                        {/* Scheduler Settings (always visible or expandable for rich interaction) */}
+                        <div className="space-y-3 pt-1 border-t border-gray-100 dark:border-zinc-850">
+                          <div className="grid grid-cols-2 gap-3">
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-gray-500 uppercase dark:text-zinc-400">
+                                {settings.language === 'ar' ? 'دورة التنظيف:' : 'Purge Cycle:'}
+                              </label>
+                              <select
+                                id="autocleanup-schedule-select"
+                                value={autoCleanupSchedule}
+                                onChange={(e) => {
+                                  setAutoCleanupSchedule(e.target.value as any);
+                                  triggerToast(
+                                    settings.language === 'ar'
+                                      ? `تم تغيير الدورة إلى: ${e.target.value === 'daily' ? 'يومي' : e.target.value === 'weekly' ? 'أسبوعي' : 'شهري'}`
+                                      : `Cleanup frequency updated to ${e.target.value}!`,
+                                    'success'
+                                  );
+                                }}
+                                disabled={!autoCleanupEnabled}
+                                className="w-full bg-gray-50 dark:bg-zinc-800 border border-gray-100 dark:border-zinc-700 rounded-lg px-2 py-1.5 text-[11px] font-semibold text-gray-800 dark:text-zinc-200 focus:outline-none disabled:opacity-50 font-sans"
+                              >
+                                <option value="daily">{settings.language === 'ar' ? '🔄 يومياً' : '🔄 Daily'}</option>
+                                <option value="weekly">{settings.language === 'ar' ? '📅 أسبوعياً' : '📅 Weekly'}</option>
+                                <option value="monthly">{settings.language === 'ar' ? '📆 شهرياً' : '📆 Monthly'}</option>
+                              </select>
+                            </div>
+
+                            <div className="space-y-1">
+                              <label className="text-[10px] font-bold text-gray-500 uppercase dark:text-zinc-400">
+                                {settings.language === 'ar' ? 'مدة الاحتفاظ القصوى:' : 'Max Age Limit:'}
+                              </label>
+                              <select
+                                id="autocleanup-threshold-select"
+                                value={cleanupThresholdDays}
+                                onChange={(e) => {
+                                  setCleanupThresholdDays(parseInt(e.target.value, 10));
+                                  triggerToast(
+                                    settings.language === 'ar'
+                                      ? `تم تعيين مدة الاحتفاظ إلى ${e.target.value} أيام`
+                                      : `Retention threshold updated to ${e.target.value} days!`,
+                                    'success'
+                                  );
+                                }}
+                                disabled={!autoCleanupEnabled}
+                                className="w-full bg-gray-50 dark:bg-zinc-800 border border-gray-100 dark:border-zinc-700 rounded-lg px-2 py-1.5 text-[11px] font-semibold text-gray-800 dark:text-zinc-200 focus:outline-none disabled:opacity-50 font-sans"
+                              >
+                                <option value="1">1 {settings.language === 'ar' ? 'يوم واحد' : 'Day'}</option>
+                                <option value="3">3 {settings.language === 'ar' ? 'أيام' : 'Days'}</option>
+                                <option value="7">7 {settings.language === 'ar' ? 'أيام (أسبوع)' : 'Days (1w)'}</option>
+                                <option value="14">14 {settings.language === 'ar' ? 'يوماً (أسبوعين)' : 'Days (2w)'}</option>
+                                <option value="30">30 {settings.language === 'ar' ? 'يوماً (شهر)' : 'Days (1m)'}</option>
+                              </select>
+                            </div>
+                          </div>
+
+                          {/* Last run indicator */}
+                          <div className="flex items-center justify-between text-[10px] bg-slate-50 dark:bg-zinc-950/20 px-2.5 py-1.5 rounded-lg border border-slate-100/40 dark:border-zinc-850">
+                            <span className="text-gray-500 dark:text-zinc-400 font-medium">
+                              {settings.language === 'ar' ? 'آخر تشغيل للجدولة:' : 'Last Scheduler Check:'}
+                            </span>
+                            <span className="font-mono text-gray-900 dark:text-zinc-200 font-bold">
+                              {lastAutoCleanupRun 
+                                ? new Date(lastAutoCleanupRun).toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' ' + new Date(lastAutoCleanupRun).toLocaleDateString()
+                                : (settings.language === 'ar' ? 'لم يتم التشغيل بعد' : 'Never Run')}
+                            </span>
+                          </div>
+
+                          {/* Simulation & Tester Playground Sandbox Controls */}
+                          <div className="space-y-1.5 pt-1">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[9px] uppercase font-bold tracking-wider text-red-500 font-sans">
+                                {settings.language === 'ar' ? 'محاكاة بيئة التطوير (Sandbox)' : 'Dev Simulation Tools'}
+                              </span>
+                              <span className="text-[8px] bg-red-50 dark:bg-red-950 text-red-600 dark:text-red-400 px-1.5 py-0.2 rounded font-mono font-bold uppercase select-none">
+                                Tester
+                              </span>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2">
+                              <button
+                                id="autocleanup-check-btn"
+                                onClick={handleTriggerManualAutoCleanupCheck}
+                                className="py-2 px-2.5 bg-gray-50 hover:bg-gray-100 dark:bg-zinc-800 dark:hover:bg-zinc-750/80 border border-gray-200 dark:border-zinc-700/60 rounded-xl text-[10px] font-bold text-gray-800 dark:text-zinc-200 cursor-pointer active:scale-95 transition-all flex items-center justify-center gap-1 shadow-2xs"
+                                title="Instantly trigger a manual run to test retention purging"
+                              >
+                                <span>🔍</span>
+                                {settings.language === 'ar' ? 'تشغيل الفحص الآن' : 'Run Check Now'}
+                              </button>
+
+                              <button
+                                id="autocleanup-sim-btn"
+                                onClick={() => simulateAutoCleanupTime(autoCleanupSchedule === 'weekly' ? 7 : autoCleanupSchedule === 'monthly' ? 30 : 1)}
+                                className="py-2 px-2.5 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/20 dark:hover:bg-amber-900/20 border border-amber-100 dark:border-amber-900/30 rounded-xl text-[10px] font-bold text-amber-800 dark:text-amber-400 cursor-pointer active:scale-95 transition-all flex items-center justify-center gap-1 shadow-2xs"
+                                title="Trick the system into thinking the schedule interval has expired to fire background cleanup"
+                              >
+                                <span>⏳</span>
+                                {settings.language === 'ar' 
+                                  ? `محاكاة مرور ${autoCleanupSchedule === 'weekly' ? '٧' : autoCleanupSchedule === 'monthly' ? '٣٠' : '١'} أيام`
+                                  : `Simulate ${autoCleanupSchedule === 'weekly' ? '7d' : autoCleanupSchedule === 'monthly' ? '30d' : '1d'} Passing`}
+                              </button>
+                            </div>
+                          </div>
+                        </div>
                       </div>
                     </div>
 
@@ -2202,6 +3014,126 @@ export default function App() {
                     });
                   })()}
                 </div>
+              ) : currentView === 'downloads' && downloadsGroupMode !== 'none' ? (
+                <div className="space-y-10" id="grouped-downloads-container">
+                  {(() => {
+                    const groups: Record<string, Video[]> = {};
+                    
+                    filteredVideos.forEach(video => {
+                      let key = '';
+                      if (downloadsGroupMode === 'category') {
+                        key = video.category || (settings.language === 'ar' ? 'غير مصنف' : 'Uncategorized');
+                      } else {
+                        key = downloadsFolders[video.id] || (settings.language === 'ar' ? 'غير مصنف' : 'Unassigned Assets');
+                      }
+                      
+                      if (!groups[key]) {
+                        groups[key] = [];
+                      }
+                      groups[key].push(video);
+                    });
+
+                    const groupKeys = Object.keys(groups);
+                    if (groupKeys.length === 0) {
+                      return (
+                        <div className="text-center py-12 text-gray-400">
+                          {settings.language === 'ar' ? 'لا توجد تنزيلات لعرضها' : 'No downloads to display'}
+                        </div>
+                      );
+                    }
+
+                    return groupKeys.map(groupKey => {
+                      const groupVideos = groups[groupKey];
+                      const groupSizeMb = groupVideos.reduce((sum, v) => sum + (downloadsMetadata[v.id]?.sizeMb || 58.9), 0);
+                      
+                      return (
+                        <motion.div
+                          key={groupKey}
+                          initial={{ opacity: 0, y: 12 }}
+                          animate={{ 
+                            opacity: 1, 
+                            y: 0,
+                            scale: draggedOverGroup === groupKey ? 1.015 : 1
+                          }}
+                          transition={{ type: 'spring', stiffness: 300, damping: 25 }}
+                          className={`space-y-4 p-5 rounded-2xl border transition-all duration-200 shadow-xs animate-fade-in ${
+                            draggedOverGroup === groupKey
+                              ? 'bg-red-500/10 border-red-500/40 dark:bg-red-500/5 dark:border-red-500/30 ring-2 ring-red-500/20 shadow-md'
+                              : 'bg-gray-50/40 border-gray-150 dark:bg-zinc-900/10 dark:border-zinc-800/40'
+                          }`}
+                          id={`download-group-${groupKey.toLowerCase().replace(' ', '-')}`}
+                          onDragOver={(e) => {
+                            e.preventDefault();
+                          }}
+                          onDragEnter={(e) => {
+                            e.preventDefault();
+                            setDraggedOverGroup(groupKey);
+                          }}
+                          onDragLeave={() => {
+                            if (draggedOverGroup === groupKey) {
+                              setDraggedOverGroup(null);
+                            }
+                          }}
+                          onDrop={(e) => {
+                            e.preventDefault();
+                            setDraggedOverGroup(null);
+                            const videoId = e.dataTransfer.getData('text/plain');
+                            if (!videoId) return;
+
+                            if (downloadsGroupMode === 'category') {
+                              handleAssignVideoToCategory(videoId, groupKey);
+                            } else if (downloadsGroupMode === 'folder') {
+                              const isUnassigned = groupKey === (settings.language === 'ar' ? 'غير مصنف' : 'Unassigned Assets');
+                              handleAssignVideoToFolder(videoId, isUnassigned ? '' : groupKey);
+                            }
+                          }}
+                        >
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-gray-200/80 dark:border-zinc-800/80">
+                            <div className="flex items-center gap-2.5">
+                              <span className="text-lg">📁</span>
+                              <h3 className="font-sans font-bold text-base text-gray-800 dark:text-zinc-100 tracking-tight">
+                                {groupKey}
+                              </h3>
+                              <span className="font-mono text-xs text-gray-500 dark:text-zinc-400 bg-white dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700/60 px-2.5 py-0.5 rounded-full shadow-2xs font-semibold">
+                                {groupVideos.length} {groupVideos.length === 1 ? (settings.language === 'ar' ? 'فيديو' : 'video') : (settings.language === 'ar' ? 'فيديوهات' : 'videos')}
+                              </span>
+                              <span className="font-mono text-xs text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/30 border border-blue-100 dark:border-blue-900/30 px-2.5 py-0.5 rounded-full shadow-2xs font-bold">
+                                {groupSizeMb.toFixed(1)} MB
+                              </span>
+                            </div>
+                          </div>
+                          
+                          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                            {groupVideos.map((video) => {
+                              return (
+                                <VideoCard
+                                  key={video.id}
+                                  video={video}
+                                  onClick={() => handleVideoSelect(video)}
+                                  onRemove={() => handleToggleDownload(video.id)}
+                                  isInWatchLater={watchLater.includes(video.id)}
+                                  onToggleWatchLater={() => handleToggleWatchLater(video.id)}
+                                  isInDownloads={downloads.includes(video.id)}
+                                  onToggleDownload={() => handleToggleDownload(video.id)}
+                                  downloadQuality={downloadsMetadata[video.id]?.quality}
+                                  onChannelClick={(chanId) => {
+                                    setActiveChannelFilter(chanId);
+                                    setView('channel');
+                                  }}
+                                  onShare={handleShare}
+                                  language={settings.language}
+                                  folderName={downloadsFolders[video.id]}
+                                  availableFolders={(Object.values(downloadsFolders) as string[]).filter((v, i, self) => v && self.indexOf(v) === i)}
+                                  onAssignFolder={(folder) => handleAssignVideoToFolder(video.id, folder)}
+                                />
+                              );
+                            })}
+                          </div>
+                        </motion.div>
+                      );
+                    });
+                  })()}
+                </div>
               ) : (
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
                   {filteredVideos.map((video) => {
@@ -2240,6 +3172,9 @@ export default function App() {
                         }}
                         onShare={handleShare}
                         language={settings.language}
+                        folderName={downloadsFolders[video.id]}
+                        availableFolders={(Object.values(downloadsFolders) as string[]).filter((v, i, self) => v && self.indexOf(v) === i)}
+                        onAssignFolder={(folder) => handleAssignVideoToFolder(video.id, folder)}
                       />
                     );
                   })}
@@ -2336,6 +3271,87 @@ export default function App() {
         cancelText={confirmModalState.cancelText}
         language={settings.language}
       />
+
+      {/* 11. Custom Create New Folder Modal */}
+      {showNewFolderModal && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: 15 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            className="bg-white dark:bg-zinc-900 border border-gray-200 dark:border-zinc-800 rounded-3xl p-6 max-w-sm w-full shadow-2xl space-y-4 font-sans"
+          >
+            <div className="flex items-center gap-3">
+              <span className="text-2xl">📁</span>
+              <h3 className="font-bold text-gray-900 dark:text-zinc-100 text-base md:text-lg">
+                {settings.language === 'ar' ? 'إنشاء مجلد مخصص جديد' : 'Create New Custom Folder'}
+              </h3>
+            </div>
+            
+            <p className="text-xs text-gray-500 dark:text-zinc-400">
+              {settings.language === 'ar'
+                ? 'أدخل اسماً جديداً للمجلد لتصنيف هذا التنزيل وحفظه به.'
+                : 'Enter a name for the folder to save and classify this downloaded asset.'}
+            </p>
+
+            <input
+              type="text"
+              autoFocus
+              value={newFolderInput}
+              onChange={(e) => setNewFolderInput(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') {
+                  handleCreateNewFolder();
+                }
+              }}
+              placeholder={settings.language === 'ar' ? 'أدخل اسم المجلد (مثال: البرمجة، الطبخ)...' : 'Folder name (e.g., Coding, Music)...'}
+              className="w-full px-4 py-2.5 bg-gray-50 dark:bg-zinc-800 border border-gray-200 dark:border-zinc-700 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-red-500 focus:border-transparent dark:text-zinc-100 font-medium"
+            />
+
+            <div className="flex items-center justify-end gap-2.5 pt-2">
+              <button
+                onClick={() => {
+                  setShowNewFolderModal(false);
+                  setNewFolderVideoId(null);
+                  setNewFolderInput('');
+                }}
+                className="px-4 py-2 text-xs font-semibold text-gray-500 dark:text-zinc-400 hover:text-gray-700 bg-gray-100 dark:bg-zinc-800 hover:bg-gray-200 dark:hover:bg-zinc-700 rounded-xl transition-all cursor-pointer active:scale-95"
+              >
+                {settings.language === 'ar' ? 'إلغاء' : 'Cancel'}
+              </button>
+              <button
+                onClick={handleCreateNewFolder}
+                className="px-4 py-2 text-xs font-bold text-white bg-red-600 hover:bg-red-700 rounded-xl transition-all cursor-pointer shadow-md active:scale-95"
+              >
+                {settings.language === 'ar' ? 'إنشاء وتعيين' : 'Create & Assign'}
+              </button>
+            </div>
+          </motion.div>
+        </div>
+      )}
+
+      {/* 10. Floating Picture-in-Picture Mini Player */}
+      <AnimatePresence>
+        {activeVideo && currentView !== 'watch' && !isMiniPlayerClosed && (
+          <MiniPlayer
+            video={activeVideo}
+            isPlaying={miniPlayerPlaying}
+            isMuted={miniPlayerMuted}
+            onTogglePlay={() => setMiniPlayerPlaying(!miniPlayerPlaying)}
+            onToggleMute={() => setMiniPlayerMuted(!miniPlayerMuted)}
+            onExpand={() => setView('watch')}
+            onClose={() => {
+              setIsMiniPlayerClosed(true);
+              triggerToast(
+                settings.language === 'ar' 
+                  ? 'تم إغلاق المشغل المصغر 📺' 
+                  : 'Mini Player closed 📺',
+                'info'
+              );
+            }}
+            language={settings.language}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 }

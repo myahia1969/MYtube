@@ -1,6 +1,6 @@
 import React from 'react';
-import { Home, Tv, Heart, Upload, Database, Users, HelpCircle, History, Clock, BarChart3, Keyboard, Zap, Download, Library } from 'lucide-react';
-import { Channel } from '../types';
+import { Home, Tv, Heart, Upload, Database, Users, HelpCircle, History, Clock, BarChart3, Keyboard, Zap, Download, Library, Trash2, Radio, MessageSquare } from 'lucide-react';
+import { Channel, VideoBookmark } from '../types';
 
 interface SidebarProps {
   currentView: string;
@@ -13,6 +13,9 @@ interface SidebarProps {
   onCloseMobile: () => void;
   language?: 'en' | 'ar';
   onHelpShortcutsClick?: () => void;
+  bookmarks?: VideoBookmark[];
+  onBookmarkClick?: (bookmark: VideoBookmark) => void;
+  onDeleteBookmark?: (bookmarkId: string) => void;
 }
 
 export default function Sidebar({
@@ -26,6 +29,9 @@ export default function Sidebar({
   onCloseMobile,
   language = 'en',
   onHelpShortcutsClick,
+  bookmarks = [],
+  onBookmarkClick,
+  onDeleteBookmark,
 }: SidebarProps) {
   
   // Custom button layout and text styling based on collapse state
@@ -84,6 +90,38 @@ export default function Sidebar({
             <Zap className={`${collapsed ? 'w-5 h-5' : 'w-4 h-4'} text-amber-500 shrink-0`} />
             <span className={collapsed ? 'text-[9px] scale-95 leading-tight font-medium' : 'truncate'}>
               {collapsed ? (language === 'ar' ? 'شورتس' : 'Shorts') : (language === 'ar' ? 'فيديوهات قصيرة' : 'Shorts Videos')}
+            </span>
+          </button>
+
+          <button
+            id="nav-live"
+            onClick={() => {
+              onChannelFilter(null, false);
+              setView('live');
+              onCloseMobile();
+            }}
+            className={buttonClass(currentView === 'live')}
+            title={language === 'ar' ? 'البث المباشر والبودكاست' : 'Live & Podcasts'}
+          >
+            <Radio className={`${collapsed ? 'w-5 h-5' : 'w-4 h-4'} text-rose-650 shrink-0 animate-pulse`} />
+            <span className={collapsed ? 'text-[9px] scale-95 leading-tight font-medium' : 'truncate'}>
+              {collapsed ? (language === 'ar' ? 'مباشر' : 'Live') : (language === 'ar' ? 'البث المباشر والبودكاست' : 'Live & Podcasts')}
+            </span>
+          </button>
+
+          <button
+            id="nav-chat"
+            onClick={() => {
+              onChannelFilter(null, false);
+              setView('chat');
+              onCloseMobile();
+            }}
+            className={buttonClass(currentView === 'chat')}
+            title={language === 'ar' ? 'محادثات المشتركين' : 'Subscribers Chat'}
+          >
+            <MessageSquare className={`${collapsed ? 'w-5 h-5' : 'w-4 h-4'} text-rose-500 shrink-0`} />
+            <span className={collapsed ? 'text-[9px] scale-95 leading-tight font-medium' : 'truncate'}>
+              {collapsed ? (language === 'ar' ? 'محادثة' : 'Chat') : (language === 'ar' ? 'محادثات المشتركين' : 'Subscribers Chat')}
             </span>
           </button>
 
@@ -280,6 +318,95 @@ export default function Sidebar({
                     </span>
                   )}
                 </button>
+              ))
+            )}
+          </div>
+        </div>
+
+        {/* Bookmarks Section */}
+        <div className="space-y-2 border-t border-gray-100 pt-4">
+          {!collapsed ? (
+            <div className="flex items-center justify-between px-3">
+              <h3 className="text-xs font-semibold text-gray-400 uppercase tracking-wider font-mono flex items-center gap-1.5">
+                <span>🔖</span>
+                {language === 'ar' ? 'العلامات المرجعية' : 'Bookmarks'}
+              </h3>
+              <span className="text-[10px] bg-indigo-50 text-indigo-600 px-1.5 py-0.5 rounded font-mono border border-indigo-100 font-bold">
+                {bookmarks.length}
+              </span>
+            </div>
+          ) : (
+            <div className="border-t border-gray-100 my-2 pt-2 text-center" title={language === 'ar' ? 'العلامات المرجعية' : 'Bookmarks'}>
+              <span className="text-[9px] font-mono text-gray-400 font-bold">
+                {language === 'ar' ? 'علامات' : 'BMARKS'}
+              </span>
+            </div>
+          )}
+
+          <div className="space-y-1 max-h-56 overflow-y-auto pr-1 scrollbar-none">
+            {bookmarks.length === 0 ? (
+              !collapsed && (
+                <p className="text-xs text-gray-400 px-3 py-2 italic font-sans">
+                  {language === 'ar' 
+                    ? 'لا توجد علامات مرجعية.' 
+                    : 'No bookmarks yet.'}
+                </p>
+              )
+            ) : (
+              bookmarks.map((bookmark) => (
+                <div
+                  key={bookmark.id}
+                  className={`group relative w-full flex ${
+                    collapsed ? 'flex-col items-center justify-center p-2' : 'items-center gap-2 px-3 py-1.5'
+                  } rounded-xl text-xs font-medium transition-all cursor-pointer hover:bg-gray-50`}
+                >
+                  <div 
+                    onClick={() => onBookmarkClick && onBookmarkClick(bookmark)}
+                    className="flex-1 min-w-0 flex items-center gap-2"
+                  >
+                    {!collapsed && (
+                      <div className="min-w-0 flex-1 text-left">
+                        <div className="flex items-center gap-1.5 mb-0.5">
+                          <span className="text-[9px] font-bold text-indigo-600 bg-indigo-50/80 border border-indigo-100/60 px-1.5 py-0.5 rounded-md font-mono shrink-0">
+                            {bookmark.timestampLabel}
+                          </span>
+                          <span className="truncate font-semibold text-gray-800 flex-1 group-hover:text-red-600 font-sans">
+                            {bookmark.videoTitle}
+                          </span>
+                        </div>
+                        {bookmark.note && (
+                          <p className="text-[10px] text-gray-400 truncate pl-1 font-sans italic">
+                            {bookmark.note}
+                          </p>
+                        )}
+                      </div>
+                    )}
+
+                    {collapsed && (
+                      <button
+                        onClick={() => onBookmarkClick && onBookmarkClick(bookmark)}
+                        className="p-1 bg-indigo-50 border border-indigo-100/80 rounded-lg hover:bg-indigo-100 transition-all text-indigo-600 cursor-pointer active:scale-95"
+                        title={`${bookmark.videoTitle} [${bookmark.timestampLabel}] - ${bookmark.note}`}
+                      >
+                        <span className="text-[9px] font-mono font-extrabold">{bookmark.timestampLabel}</span>
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Delete button (visible on hover) */}
+                  {!collapsed && onDeleteBookmark && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onDeleteBookmark(bookmark.id);
+                      }}
+                      className="opacity-0 group-hover:opacity-100 p-1 hover:bg-red-50 text-gray-400 hover:text-red-600 rounded-md transition-all cursor-pointer"
+                      title={language === 'ar' ? 'حذف العلامة المرجعية' : 'Delete bookmark'}
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+                </div>
               ))
             )}
           </div>
