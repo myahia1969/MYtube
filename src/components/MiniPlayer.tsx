@@ -4,6 +4,7 @@ import { Video } from '../types';
 import { motion } from 'motion/react';
 
 interface MiniPlayerProps {
+  key?: string;
   video: Video;
   isPlaying: boolean;
   isMuted: boolean;
@@ -47,9 +48,16 @@ export default function MiniPlayer({
       drag
       dragMomentum={false}
       dragElastic={0.1}
-      initial={{ opacity: 0, scale: 0.8, y: 50 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      exit={{ opacity: 0, scale: 0.8, y: 50 }}
+      initial={{ opacity: 0, scale: 0.88, x: 70, y: 40 }}
+      animate={{ opacity: 1, scale: 1, x: 0, y: 0 }}
+      exit={{ opacity: 0, scale: 0.85, x: 80, y: 30 }}
+      transition={{
+        type: 'spring',
+        stiffness: 340,
+        damping: 28,
+        mass: 0.8,
+        opacity: { duration: 0.25, ease: 'easeOut' }
+      }}
       className={`fixed bottom-24 right-6 md:right-8 w-72 sm:w-80 bg-white dark:bg-[#1a1a1a] border border-gray-200/80 dark:border-zinc-800/80 rounded-2xl shadow-2xl overflow-hidden z-40 flex flex-col backdrop-blur-md cursor-grab active:cursor-grabbing`}
       style={{ touchAction: 'none' }}
     >

@@ -1,8 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   INITIAL_VIDEOS, INITIAL_COMMENTS, INITIAL_CHANNELS, CURRENT_USER 
 } from './data';
-import { Video, Comment, Channel, User, Category, Playlist, VideoBookmark } from './types';
+import { Video, Comment, Channel, User, Category, DurationFilter, Playlist, VideoBookmark } from './types';
 import Navbar from './components/Navbar';
 import Sidebar from './components/Sidebar';
 import VideoCard from './components/VideoCard';
@@ -120,7 +120,9 @@ export default function App() {
     return CURRENT_USER;
   });
 
-  const [history, setHistory] = useState<{ videoId: string; watchedAt: string; progress?: number }[]>(() => {
+  const lastProgressSaveRef = useRef<number>(0);
+
+  const [history, setHistory] = useState<{ videoId: string; watchedAt: string; progress?: number; currentTime?: number }[]>(() => {
     const saved = localStorage.getItem('metatube_history');
     if (!saved) return [];
     try {
@@ -442,6 +444,7 @@ export default function App() {
   const [offlineSearchQuery, setOfflineSearchQuery] = useState('');
   const [activeChannelFilter, setActiveChannelFilter] = useState<string | null>(null);
   const [selectedCategory, setSelectedCategory] = useState<Category>('All');
+  const [selectedDurationFilter, setSelectedDurationFilter] = useState<DurationFilter>('all');
 
   // Web search integration states
   const [webSearchVideos, setWebSearchVideos] = useState<Video[]>([]);
@@ -802,8 +805,31 @@ export default function App() {
     }
   }, [videos]);
 
-  const handleShare = (video: Video) => {
+  const handleShare = (video: Video, mode: 'clipboard' | 'email' = 'clipboard') => {
     const isArabic = settings.language === 'ar';
+    const videoUrl = `${window.location.origin}${window.location.pathname}?v=${video.id}`;
+
+    if (mode === 'email') {
+      const subject = isArabic 
+        ? `شاهد هذا الفيديو: ${video.title}`
+        : `Check out this video: ${video.title}`;
+      const body = isArabic
+        ? `أود مشاركة هذا الفيديو معك:\n\n"${video.title}"\n\nرابط المشاهدة:\n${videoUrl}`
+        : `Check out this video on MYtube:\n\n"${video.title}"\n\nWatch it here:\n${videoUrl}`;
+
+      const mailtoUrl = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+      window.location.href = mailtoUrl;
+
+      const msg = isArabic 
+        ? `جارٍ فتح تطبيق البريد لمشاركة "${video.title}"` 
+        : `Opening email client to share "${video.title}"`;
+      triggerToast(msg, 'info');
+      return mailtoUrl;
+    }
+
+    if (navigator.clipboard) {
+      navigator.clipboard.writeText(videoUrl).catch(() => {});
+    }
     const msg = isArabic 
       ? `تم نسخ رابط فيديو "${video.title}" إلى الحافظة بنجاح!` 
       : `Link to "${video.title}" copied to clipboard successfully!`;
@@ -826,10 +852,60 @@ export default function App() {
     setIsMiniPlayerClosed(false);
     setMiniPlayerPlaying(true);
 
-    // Track watched video ID (moving it to the front if it already exists, ensuring no duplicate visual rows)
+    // Retrieve exact last watched position from localStorage or history
+    let resumeTime: number | null = null;
+    try {
+      const savedPositionsRaw = localStorage.getItem('metatube_video_positions');
+      if (savedPositionsRaw) {
+        const positions = JSON.parse(savedPositionsRaw);
+        if (positions[video.id] && typeof positions[video.id].currentTime === 'number') {
+          resumeTime = positions[video.id].currentTime;
+        }
+      }
+    } catch (e) {
+      console.error('Error reading video positions from localStorage:', e);
+    }
+
+    // Fallback to history item if position dictionary didn't have it
+    if (resumeTime === null) {
+      const historyItem = history.find(item => item.videoId === video.id);
+      if (historyItem && historyItem.currentTime !== undefined && historyItem.currentTime > 0) {
+        resumeTime = historyItem.currentTime;
+      } else if (historyItem && historyItem.progress !== undefined && historyItem.progress > 0 && video.duration) {
+        const parts = video.duration.split(':').map(Number);
+        let durSec = 0;
+        if (parts.length === 2) durSec = parts[0] * 60 + parts[1];
+        else if (parts.length === 3) durSec = parts[0] * 3600 + parts[1] * 60 + parts[2];
+        if (durSec > 0) {
+          resumeTime = historyItem.progress * durSec;
+        }
+      }
+    }
+
+    // Don't resume if video was finished (>95%)
+    if (resumeTime && resumeTime > 0) {
+      const parts = video.duration ? video.duration.split(':').map(Number) : [];
+      let durSec = 0;
+      if (parts.length === 2) durSec = parts[0] * 60 + parts[1];
+      else if (parts.length === 3) durSec = parts[0] * 3600 + parts[1] * 60 + parts[2];
+      
+      if (durSec > 0 && resumeTime >= durSec - 3) {
+        resumeTime = null; // Start from beginning if finished
+      }
+    }
+
+    setSeekToTime(resumeTime && resumeTime > 1 ? resumeTime : null);
+
+    // Track watched video ID while preserving existing progress & currentTime
     setHistory(prev => {
+      const existing = prev.find(item => item.videoId === video.id);
       const filtered = prev.filter(item => item.videoId !== video.id);
-      return [{ videoId: video.id, watchedAt: new Date().toLocaleString() }, ...filtered];
+      return [{ 
+        videoId: video.id, 
+        watchedAt: new Date().toLocaleString(),
+        progress: existing?.progress,
+        currentTime: existing?.currentTime
+      }, ...filtered];
     });
     
     // Increment view count dynamically on playback selection
@@ -838,31 +914,85 @@ export default function App() {
     );
   };
 
-  const handleProgressUpdate = (progress: number) => {
+  const handleProgressUpdate = (progress: number, currentTime?: number) => {
     if (!activeVideo) return;
+
+    // Check 5 second throttling interval for localStorage persistence
+    const now = Date.now();
+    const shouldPersist = now - lastProgressSaveRef.current >= 5000;
+
+    // Calculate actual timestamp in seconds if currentTime not provided directly
+    let timeInSeconds = currentTime;
+    if (timeInSeconds === undefined && activeVideo.duration) {
+      const parts = activeVideo.duration.split(':').map(Number);
+      let durSec = 0;
+      if (parts.length === 2) durSec = parts[0] * 60 + parts[1];
+      else if (parts.length === 3) durSec = parts[0] * 3600 + parts[1] * 60 + parts[2];
+      if (durSec > 0) {
+        timeInSeconds = progress * durSec;
+      }
+    }
+
     setHistory(prev => {
       return prev.map(item => {
         if (item.videoId === activeVideo.id) {
-          return { ...item, progress };
+          return { 
+            ...item, 
+            progress, 
+            currentTime: timeInSeconds !== undefined ? timeInSeconds : item.currentTime 
+          };
         }
         return item;
       });
     });
+
+    if (shouldPersist) {
+      lastProgressSaveRef.current = now;
+      try {
+        const savedPositionsRaw = localStorage.getItem('metatube_video_positions');
+        const positions = savedPositionsRaw ? JSON.parse(savedPositionsRaw) : {};
+        positions[activeVideo.id] = {
+          progress,
+          currentTime: timeInSeconds ?? 0,
+          timestamp: now
+        };
+        localStorage.setItem('metatube_video_positions', JSON.stringify(positions));
+      } catch (e) {
+        console.error('Error persisting video progress to localStorage:', e);
+      }
+    }
   };
 
   const handleRemoveFromHistory = (videoId: string) => {
     setHistory(prev => prev.filter(item => item.videoId !== videoId));
+    try {
+      const savedPositionsRaw = localStorage.getItem('metatube_video_positions');
+      if (savedPositionsRaw) {
+        const positions = JSON.parse(savedPositionsRaw);
+        delete positions[videoId];
+        localStorage.setItem('metatube_video_positions', JSON.stringify(positions));
+      }
+    } catch (e) {}
   };
 
   const handleWatchAgain = (video: Video) => {
+    try {
+      const savedPositionsRaw = localStorage.getItem('metatube_video_positions');
+      if (savedPositionsRaw) {
+        const positions = JSON.parse(savedPositionsRaw);
+        delete positions[video.id];
+        localStorage.setItem('metatube_video_positions', JSON.stringify(positions));
+      }
+    } catch (e) {}
     setHistory(prev => {
       return prev.map(item => {
         if (item.videoId === video.id) {
-          return { ...item, progress: 0, watchedAt: new Date().toLocaleString() };
+          return { ...item, progress: 0, currentTime: 0, watchedAt: new Date().toLocaleString() };
         }
         return item;
       });
     });
+    setSeekToTime(0);
     handleVideoSelect(video);
   };
 
@@ -1621,6 +1751,20 @@ export default function App() {
         return false;
       }
 
+      // 3.5. Duration filter
+      if (selectedDurationFilter !== 'all') {
+        const durationSec = parseDurationToSeconds(video.duration);
+        if (selectedDurationFilter === 'short' && durationSec >= 240) {
+          return false;
+        }
+        if (selectedDurationFilter === 'medium' && (durationSec < 240 || durationSec > 1200)) {
+          return false;
+        }
+        if (selectedDurationFilter === 'long' && durationSec <= 1200) {
+          return false;
+        }
+      }
+
       // 4. Navbar active search query matching index
       if (searchQuery.trim()) {
         const matchText = searchQuery.toLowerCase();
@@ -1710,6 +1854,7 @@ export default function App() {
           setView('home');
           setActiveChannelFilter(null);
           setSelectedCategory('All');
+          setSelectedDurationFilter('all');
           setSearchQuery('');
         }}
         onDevConsoleClick={() => setView('dev-console')}
@@ -1717,7 +1862,6 @@ export default function App() {
         onLoginClick={handleLogin}
         onLogoutClick={handleLogout}
         onMenuClick={() => {
-          setSidebarCollapsed(prev => !prev);
           setMobileSidebarOpen(prev => !prev);
         }}
         onSettingsClick={() => setShowSettingsModal(true)}
@@ -1731,6 +1875,8 @@ export default function App() {
         onMarkAlertsAsRead={handleMarkAlertsAsRead}
         onRemoveAlert={handleRemoveAlert}
         onTriggerToast={triggerToast}
+        onVideoSelect={handleVideoSelect}
+        setView={setView}
       />
 
       {/* Main Panel Wrapper */}
@@ -1825,6 +1971,10 @@ export default function App() {
               onDeleteBookmark={handleDeleteBookmark}
               seekToTime={seekToTime}
               onSeekComplete={() => setSeekToTime(null)}
+              history={history}
+              watchLater={watchLater}
+              onToggleWatchLaterId={(vId) => handleToggleWatchLater(vId)}
+              onShare={handleShare}
             />
           ) : currentView === 'playlists' ? (
             /* Custom user playlists management view */
@@ -1866,25 +2016,47 @@ export default function App() {
                 <StoriesSection language={settings.language === 'ar' ? 'ar' : 'en'} currentUser={currentUser} />
               )}
               
-              {/* Category Chips Selector (Only shown in non-watch/dev states) */}
+              {/* Category Chips Selector & Duration Filter (Only shown in non-watch/dev states) */}
               {!activeChannelFilter && currentView === 'home' && (
-                <div className="flex gap-2.5 overflow-x-auto pb-2 scrollbar-none select-none">
-                  {(['All', 'Coding', 'Tech', 'Design', 'Nature', 'Music', 'Gaming'] as Category[]).map((cat) => (
-                    <button
-                      key={cat}
-                      onClick={() => {
-                        setSelectedCategory(cat);
-                        setSearchMode('local');
-                      }}
-                      className={`px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all duration-200 cursor-pointer ${
-                        selectedCategory === cat
-                          ? 'bg-[#0f0f0f] text-white shadow-sm'
-                          : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
-                      }`}
+                <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 pb-2 select-none">
+                  {/* Category Chips */}
+                  <div className="flex gap-2.5 overflow-x-auto pb-1 sm:pb-0 scrollbar-none flex-1">
+                    {(['All', 'Coding', 'Tech', 'Design', 'Nature', 'Music', 'Gaming'] as Category[]).map((cat) => (
+                      <button
+                        key={cat}
+                        onClick={() => {
+                          setSelectedCategory(cat);
+                          setSearchMode('local');
+                        }}
+                        className={`px-4 py-1.5 rounded-full text-xs font-semibold whitespace-nowrap transition-all duration-200 cursor-pointer ${
+                          selectedCategory === cat
+                            ? 'bg-[#0f0f0f] text-white shadow-sm'
+                            : 'bg-white border border-gray-200 text-gray-700 hover:bg-gray-50'
+                        }`}
+                      >
+                        {cat}
+                      </button>
+                    ))}
+                  </div>
+
+                  {/* Duration Filter Dropdown */}
+                  <div className="flex items-center gap-2 self-start sm:self-center bg-white border border-gray-200 rounded-full px-3.5 py-1.5 shadow-2xs hover:border-gray-300 transition-all shrink-0">
+                    <Clock className="w-3.5 h-3.5 text-red-600 shrink-0" />
+                    <span className="text-xs font-bold text-gray-600 shrink-0">
+                      {settings.language === 'ar' ? 'المدة:' : 'Duration:'}
+                    </span>
+                    <select
+                      value={selectedDurationFilter}
+                      onChange={(e) => setSelectedDurationFilter(e.target.value as DurationFilter)}
+                      className="bg-transparent text-xs font-bold text-gray-900 outline-none cursor-pointer pe-1"
+                      aria-label="Filter by duration"
                     >
-                      {cat}
-                    </button>
-                  ))}
+                      <option value="all">{settings.language === 'ar' ? 'جميع الأطوال' : 'Any duration'}</option>
+                      <option value="short">{settings.language === 'ar' ? 'قصيرة (< 4 دقائق)' : 'Short (< 4 min)'}</option>
+                      <option value="medium">{settings.language === 'ar' ? 'متوسطة (4-20 دقيقة)' : 'Medium (4–20 min)'}</option>
+                      <option value="long">{settings.language === 'ar' ? 'طويلة (> 20 دقيقة)' : 'Long (> 20 min)'}</option>
+                    </select>
+                  </div>
                 </div>
               )}
 
@@ -3204,6 +3376,15 @@ export default function App() {
           settings={settings}
           onUpdateSettings={(newSettings) => setSettings(prev => ({ ...prev, ...newSettings }))}
           onResetAllData={handleResetAllData}
+          history={history}
+          setHistory={setHistory}
+          watchLater={watchLater}
+          setWatchLater={setWatchLater}
+          playlists={playlists}
+          setPlaylists={setPlaylists}
+          bookmarks={bookmarks}
+          setBookmarks={setBookmarks}
+          onTriggerToast={triggerToast}
         />
       )}
 
@@ -3330,9 +3511,10 @@ export default function App() {
       )}
 
       {/* 10. Floating Picture-in-Picture Mini Player */}
-      <AnimatePresence>
+      <AnimatePresence mode="wait">
         {activeVideo && currentView !== 'watch' && !isMiniPlayerClosed && (
           <MiniPlayer
+            key={`mini-player-${activeVideo.id}`}
             video={activeVideo}
             isPlaying={miniPlayerPlaying}
             isMuted={miniPlayerMuted}

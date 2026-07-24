@@ -44,6 +44,8 @@ export interface Comment {
 
 export type Category = 'All' | 'Tech' | 'Design' | 'Nature' | 'Music' | 'Coding' | 'Gaming';
 
+export type DurationFilter = 'all' | 'short' | 'medium' | 'long';
+
 export interface Playlist {
   id: string;
   name: string;

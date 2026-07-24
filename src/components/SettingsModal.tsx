@@ -1,5 +1,5 @@
-import React from 'react';
-import { X, Paintbrush, Gauge, Play, Languages, Trash2, RotateCcw, AlertTriangle, ShieldCheck } from 'lucide-react';
+import React, { useState, useEffect, useRef } from 'react';
+import { X, Paintbrush, Gauge, Play, Languages, Trash2, RotateCcw, AlertTriangle, ShieldCheck, Cloud, RefreshCw } from 'lucide-react';
 
 export interface AppSettings {
   playbackSpeed: number;
@@ -13,6 +13,15 @@ interface SettingsModalProps {
   settings: AppSettings;
   onUpdateSettings: (newSettings: Partial<AppSettings>) => void;
   onResetAllData: () => void;
+  history: any[];
+  setHistory: React.Dispatch<React.SetStateAction<any[]>>;
+  watchLater: string[];
+  setWatchLater: React.Dispatch<React.SetStateAction<string[]>>;
+  playlists?: any[];
+  setPlaylists?: React.Dispatch<React.SetStateAction<any[]>>;
+  bookmarks?: any[];
+  setBookmarks?: React.Dispatch<React.SetStateAction<any[]>>;
+  onTriggerToast?: (message: string, type: 'success' | 'info' | 'error') => void;
 }
 
 export default function SettingsModal({
@@ -20,8 +29,132 @@ export default function SettingsModal({
   settings,
   onUpdateSettings,
   onResetAllData,
+  history,
+  setHistory,
+  watchLater,
+  setWatchLater,
+  playlists = [],
+  setPlaylists,
+  bookmarks = [],
+  setBookmarks,
+  onTriggerToast,
 }: SettingsModalProps) {
   const isAr = settings.language === 'ar';
+
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [lastSyncTime, setLastSyncTime] = useState<string | null>(() => {
+    return localStorage.getItem('metatube_cloud_sync_timestamp');
+  });
+
+  const handleSyncData = () => {
+    setIsSyncing(true);
+
+    // Simulate network latency for uploading to mock server
+    setTimeout(() => {
+      try {
+        // 1. Fetch existing mock cloud data if any
+        const rawCloudData = localStorage.getItem('metatube_cloud_sync_data');
+        let cloudWatchLater: string[] = [];
+        let cloudHistory: any[] = [];
+        let cloudPlaylists: any[] = [];
+        let cloudBookmarks: any[] = [];
+
+        if (rawCloudData) {
+          const parsed = JSON.parse(rawCloudData);
+          cloudWatchLater = parsed.watchLater || [];
+          cloudHistory = parsed.history || [];
+          cloudPlaylists = parsed.playlists || [];
+          cloudBookmarks = parsed.bookmarks || [];
+        }
+
+        // 2. Merge watch later
+        const mergedWatchLater = Array.from(new Set([...watchLater, ...cloudWatchLater]));
+
+        // 3. Merge history (by videoId)
+        const historyMap = new Map<string, any>();
+        history.forEach(item => historyMap.set(item.videoId, item));
+        cloudHistory.forEach(item => {
+          const existing = historyMap.get(item.videoId);
+          if (!existing) {
+            historyMap.set(item.videoId, item);
+          } else {
+            const existingDate = new Date(existing.watchedAt || 0).getTime();
+            const cloudDate = new Date(item.watchedAt || 0).getTime();
+            if (cloudDate > existingDate) {
+              historyMap.set(item.videoId, item);
+            }
+          }
+        });
+        const mergedHistory = Array.from(historyMap.values());
+
+        // 4. Merge playlists (by id)
+        const playlistsMap = new Map<string, any>();
+        playlists.forEach(p => playlistsMap.set(p.id, p));
+        cloudPlaylists.forEach(p => {
+          if (!playlistsMap.has(p.id)) {
+            playlistsMap.set(p.id, p);
+          }
+        });
+        const mergedPlaylists = Array.from(playlistsMap.values());
+
+        // 5. Merge bookmarks (by id)
+        const bookmarksMap = new Map<string, any>();
+        bookmarks.forEach(b => bookmarksMap.set(b.id, b));
+        cloudBookmarks.forEach(b => {
+          if (!bookmarksMap.has(b.id)) {
+            bookmarksMap.set(b.id, b);
+          }
+        });
+        const mergedBookmarks = Array.from(bookmarksMap.values());
+
+        // 6. Update local React states if setters are available
+        setWatchLater(mergedWatchLater);
+        setHistory(mergedHistory);
+        if (setPlaylists) setPlaylists(mergedPlaylists);
+        if (setBookmarks) setBookmarks(mergedBookmarks);
+
+        // 7. Store payload on simulated mock server storage
+        const now = new Date();
+        const formattedTimestamp = now.toLocaleString(isAr ? 'ar-EG' : 'en-US', {
+          dateStyle: 'medium',
+          timeStyle: 'short',
+        });
+
+        const syncPayload = {
+          timestamp: now.toISOString(),
+          watchLater: mergedWatchLater,
+          history: mergedHistory,
+          playlists: mergedPlaylists,
+          bookmarks: mergedBookmarks,
+          meta: {
+            syncedBy: 'MYtube Client',
+            version: '2.0',
+            serverStatus: '200 OK (Mock Server)',
+          }
+        };
+
+        localStorage.setItem('metatube_cloud_sync_data', JSON.stringify(syncPayload));
+        localStorage.setItem('metatube_cloud_sync_timestamp', formattedTimestamp);
+        setLastSyncTime(formattedTimestamp);
+
+        // 8. Trigger success notification
+        onTriggerToast?.(
+          isAr
+            ? 'تم رفع ومزامنة البيانات المحلية (السجل، قوائم التشغيل، الإشارات المرجعية) إلى خادم السحابة بنجاح! ☁️'
+            : 'Local metadata (history, playlists, bookmarks) successfully synced to cloud! ☁️',
+          'success'
+        );
+      } catch (error) {
+        console.error('Error during cloud sync simulation:', error);
+        onTriggerToast?.(
+          isAr ? 'فشلت المزامنة. يرجى المحاولة مرة أخرى.' : 'Sync failed. Please try again.',
+          'error'
+        );
+      } finally {
+        setIsSyncing(false);
+      }
+    }, 1200);
+  };
 
   const accentColors = [
     { id: 'red', name: 'YouTube Red', color: 'bg-red-600', text: 'text-red-600', hover: 'hover:bg-red-50' },
@@ -182,6 +315,42 @@ export default function SettingsModal({
                 settings.autoplayNext ? (isAr ? '-translate-x-5' : 'translate-x-5') : 'translate-x-0'
               }`} />
             </button>
+          </div>
+
+          {/* Simulated Cloud Sync */}
+          <div className="space-y-2.5 pt-2 border-t border-gray-150">
+            <h4 className="text-xs font-semibold text-gray-400 uppercase tracking-wider font-mono flex items-center gap-2">
+              <Cloud className="w-4 h-4 text-sky-500" />
+              <span>{isAr ? 'المزامنة السحابية (محاكاة)' : 'Simulated Cloud Sync'}</span>
+            </h4>
+            <div className="p-3.5 bg-sky-50/40 rounded-xl border border-sky-100 space-y-3">
+              <div className="flex items-start gap-3">
+                <RefreshCw className={`w-4 h-4 text-sky-600 mt-0.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                <div className="flex-1">
+                  <h5 className="text-xs font-bold text-gray-900">
+                    {isAr ? 'مزامنة بيانات المشاهدة وقائمة التشغيل' : 'Sync History & Watch Later'}
+                  </h5>
+                  <p className="text-[10px] text-gray-500 font-sans leading-relaxed">
+                    {isAr
+                      ? 'احفظ واحمِ سجل المشاهدة وقائمة التشغيل لاحقاً في التخزين السحابي المحاكى واسترجعها في أي وقت.'
+                      : 'Backup and merge your watch history and watch later list with our simulated cloud storage database.'}
+                  </p>
+                  {lastSyncTime && (
+                    <p className="text-[9px] text-sky-600 font-mono mt-1">
+                      {isAr ? 'آخر مزامنة ناجحة:' : 'Last Synced:'} {lastSyncTime}
+                    </p>
+                  )}
+                </div>
+              </div>
+              <button
+                onClick={handleSyncData}
+                disabled={isSyncing}
+                className="w-full flex items-center justify-center gap-2 py-2.5 bg-sky-600 hover:bg-sky-700 disabled:bg-sky-400 text-white rounded-xl text-xs font-bold transition-all active:scale-95 cursor-pointer shadow-sm"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isSyncing ? 'animate-spin' : ''}`} />
+                <span>{isSyncing ? (isAr ? 'جاري المزامنة...' : 'Syncing Data...') : (isAr ? 'مزامنة بياناتي الآن 🔄' : 'Sync my data 🔄')}</span>
+              </button>
+            </div>
           </div>
 
           {/* Storage & Clear */}

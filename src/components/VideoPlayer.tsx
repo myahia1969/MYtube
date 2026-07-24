@@ -1,14 +1,15 @@
 import React, { useRef, useState, useEffect } from 'react';
 import { 
   Play, Pause, Volume2, VolumeX, Maximize, Minimize, 
-  RotateCcw, RotateCw, Settings, Activity, Clock, Repeat
+  RotateCcw, RotateCw, Settings, Activity, Clock, Repeat,
+  Gauge, ChevronDown, PictureInPicture2
 } from 'lucide-react';
 import { useVideoKeyboardShortcuts } from '../hooks/useVideoKeyboardShortcuts';
 
 interface VideoPlayerProps {
   videoUrl: string;
   thumbnailUrl: string;
-  onProgressUpdate?: (progress: number) => void;
+  onProgressUpdate?: (progress: number, currentTime?: number) => void;
   onVideoEnded?: () => void;
   onTimeUpdate?: (currentTime: number, duration: number) => void;
   seekToTime?: number | null;
@@ -40,6 +41,32 @@ export default function VideoPlayer({
   const [showSpeedMenu, setShowSpeedMenu] = useState(false);
   const [showQualityMenu, setShowQualityMenu] = useState(false);
   const [isLooping, setIsLooping] = useState(false);
+  const [isPiPActive, setIsPiPActive] = useState(false);
+  const [isPiPSupported, setIsPiPSupported] = useState(false);
+
+  // Check Picture-in-Picture support on mount
+  useEffect(() => {
+    if (typeof document !== 'undefined' && ('pictureInPictureEnabled' in document || (document as any).pictureInPictureEnabled)) {
+      setIsPiPSupported(true);
+    }
+  }, []);
+
+  // Sync Picture-in-Picture state with native events
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!video) return;
+
+    const handleEnterPiP = () => setIsPiPActive(true);
+    const handleLeavePiP = () => setIsPiPActive(false);
+
+    video.addEventListener('enterpictureinpicture', handleEnterPiP);
+    video.addEventListener('leavepictureinpicture', handleLeavePiP);
+
+    return () => {
+      video.removeEventListener('enterpictureinpicture', handleEnterPiP);
+      video.removeEventListener('leavepictureinpicture', handleLeavePiP);
+    };
+  }, [videoUrl]);
 
   // Load settings and apply default playback speed on mount / load
   useEffect(() => {
@@ -81,7 +108,7 @@ export default function VideoPlayer({
       const percent = Math.floor((currentTime / duration) * 100);
       if (percent !== lastUpdatedPercentRef.current) {
         lastUpdatedPercentRef.current = percent;
-        onProgressUpdate(currentTime / duration);
+        onProgressUpdate(currentTime / duration, currentTime);
       }
     }
   }, [currentTime, duration, onProgressUpdate]);
@@ -166,16 +193,16 @@ export default function VideoPlayer({
   const changePlaybackSpeed = (speed: number) => {
     if (videoRef.current) {
       videoRef.current.playbackRate = speed;
-      setPlaybackSpeed(speed);
-      setShowSpeedMenu(false);
-      try {
-        const saved = localStorage.getItem('metatube_settings');
-        const parsed = saved ? JSON.parse(saved) : {};
-        parsed.playbackSpeed = speed;
-        localStorage.setItem('metatube_settings', JSON.stringify(parsed));
-      } catch (e) {
-        console.error(e);
-      }
+    }
+    setPlaybackSpeed(speed);
+    setShowSpeedMenu(false);
+    try {
+      const saved = localStorage.getItem('metatube_settings');
+      const parsed = saved ? JSON.parse(saved) : {};
+      parsed.playbackSpeed = speed;
+      localStorage.setItem('metatube_settings', JSON.stringify(parsed));
+    } catch (e) {
+      console.error(e);
     }
   };
 
@@ -190,6 +217,19 @@ export default function VideoPlayer({
       document.exitFullscreen().then(() => {
         setIsFullscreen(false);
       });
+    }
+  };
+
+  const togglePictureInPicture = async () => {
+    if (!videoRef.current) return;
+    try {
+      if (document.pictureInPictureElement) {
+        await document.exitPictureInPicture();
+      } else if (videoRef.current.requestPictureInPicture) {
+        await videoRef.current.requestPictureInPicture();
+      }
+    } catch (error) {
+      console.error('Error toggling Picture-in-Picture:', error);
     }
   };
 
@@ -533,26 +573,46 @@ export default function VideoPlayer({
               </span>
             </button>
 
-            {/* Playback speed selector directly inside controller overlay */}
-            <div className="flex items-center bg-zinc-900/90 border border-zinc-800 rounded-lg p-0.5 select-none" title="Playback Speed">
-              <span className="text-[10px] uppercase font-bold tracking-wider text-zinc-500 px-2 font-sans select-none hidden md:inline">
-                {appLanguage === 'ar' ? 'السرعة' : 'Speed'}
-              </span>
-              <div className="flex items-center gap-0.5">
-                {[0.5, 1, 1.5, 2].map(speed => (
-                  <button
-                    key={speed}
-                    onClick={() => changePlaybackSpeed(speed)}
-                    className={`px-2 py-0.5 rounded text-[10px] font-bold transition-all ${
-                      playbackSpeed === speed
-                        ? 'bg-red-600 text-white shadow-sm font-extrabold'
-                        : 'text-zinc-400 hover:text-white hover:bg-zinc-800/80'
-                    }`}
-                  >
-                    {speed === 1 ? '1x' : `${speed}x`}
-                  </button>
-                ))}
-              </div>
+            {/* Playback speed dropdown selector */}
+            <div className="relative">
+              <button
+                onClick={() => {
+                  setShowSpeedMenu(!showSpeedMenu);
+                  setShowQualityMenu(false);
+                }}
+                className="flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-lg bg-zinc-900/80 hover:bg-zinc-850 border border-zinc-800 text-zinc-200 hover:text-white transition-all shadow-sm cursor-pointer select-none"
+                title={appLanguage === 'ar' ? 'سرعة التشغيل' : 'Playback Speed'}
+              >
+                <Gauge className="w-3.5 h-3.5 text-red-500" />
+                <span className="font-mono text-[11px]">{playbackSpeed === 1 ? '1x' : `${playbackSpeed}x`}</span>
+                <ChevronDown className={`w-3 h-3 text-zinc-400 transition-transform duration-200 ${showSpeedMenu ? 'rotate-180' : ''}`} />
+              </button>
+
+              {showSpeedMenu && (
+                <div className="absolute bottom-9 right-0 bg-zinc-900/95 backdrop-blur-md border border-zinc-800 rounded-xl py-1.5 w-36 shadow-2xl z-30 select-none animate-in fade-in zoom-in-95 duration-150">
+                  <div className="px-3 py-1 text-[10px] font-bold text-zinc-500 uppercase tracking-wider border-b border-zinc-800/80 mb-1 flex items-center justify-between">
+                    <span>{appLanguage === 'ar' ? 'سرعة التشغيل' : 'Playback Speed'}</span>
+                  </div>
+                  {[0.5, 0.75, 1, 1.25, 1.5, 2].map(speed => (
+                    <button
+                      key={speed}
+                      onClick={() => changePlaybackSpeed(speed)}
+                      className={`w-full text-left px-3 py-1.5 text-xs transition-colors flex items-center justify-between cursor-pointer ${
+                        playbackSpeed === speed
+                          ? 'bg-red-600/15 text-red-500 font-bold'
+                          : 'text-zinc-300 hover:bg-zinc-800/80 hover:text-white'
+                      }`}
+                    >
+                      <span className="font-mono">
+                        {speed === 1 ? `1x (${appLanguage === 'ar' ? 'عادي' : 'Normal'})` : `${speed}x`}
+                      </span>
+                      {playbackSpeed === speed && (
+                        <span className="w-1.5 h-1.5 rounded-full bg-red-500 shadow-[0_0_6px_rgba(239,68,68,0.8)]" />
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* Simulated Quality selector */}
@@ -590,6 +650,30 @@ export default function VideoPlayer({
                 </div>
               )}
             </div>
+
+            {/* Picture-in-Picture */}
+            {isPiPSupported && (
+              <button
+                onClick={togglePictureInPicture}
+                className={`p-1.5 rounded-lg border flex items-center gap-1.5 transition-all duration-200 cursor-pointer ${
+                  isPiPActive
+                    ? 'bg-red-600 border-red-500 text-white shadow-[0_0_8px_rgba(239,68,68,0.5)] font-bold'
+                    : 'bg-zinc-900/80 hover:bg-zinc-850 border-zinc-800 text-zinc-300 hover:text-white'
+                }`}
+                title={
+                  isPiPActive
+                    ? (appLanguage === 'ar' ? 'إنهاء صورة داخل صورة' : 'Exit Picture-in-Picture')
+                    : (appLanguage === 'ar' ? 'صورة داخل صورة' : 'Picture-in-Picture')
+                }
+              >
+                <PictureInPicture2 className="w-3.5 h-3.5" />
+                <span className="text-[11px] font-medium hidden sm:inline select-none">
+                  {isPiPActive 
+                    ? (appLanguage === 'ar' ? 'خروج' : 'Exit PiP') 
+                    : 'PiP'}
+                </span>
+              </button>
+            )}
 
             {/* Fullscreen */}
             <button

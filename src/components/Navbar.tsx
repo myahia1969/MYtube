@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react';
-import { Search, Upload, Bell, Menu, Sparkles, User, Database, Settings, Mic, Keyboard, Wifi, WifiOff, History, Trash2, CheckCircle2, Info, XCircle, AlertCircle } from 'lucide-react';
-import { User as UserType } from '../types';
+import React, { useState, useEffect, useRef } from 'react';
+import { Search, Upload, Bell, Menu, Sparkles, User, Database, Settings, Mic, Keyboard, Wifi, WifiOff, History, Trash2, CheckCircle2, Info, XCircle, AlertCircle, ChevronDown } from 'lucide-react';
+import { User as UserType, Video } from '../types';
 import VirtualKeyboard from './VirtualKeyboard';
 
 interface NavbarProps {
@@ -25,6 +25,10 @@ interface NavbarProps {
   onMarkAlertsAsRead?: (id?: string) => void;
   onRemoveAlert?: (id: string) => void;
   onTriggerToast?: (message: string, type: 'success' | 'info' | 'error') => void;
+
+  // New video select and view navigation
+  onVideoSelect?: (video: Video) => void;
+  setView?: (view: string) => void;
 }
 
 export default function Navbar({
@@ -47,6 +51,8 @@ export default function Navbar({
   onMarkAlertsAsRead,
   onRemoveAlert,
   onTriggerToast,
+  onVideoSelect,
+  setView,
 }: NavbarProps) {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showKeyboard, setShowKeyboard] = useState(false);
@@ -54,6 +60,33 @@ export default function Navbar({
   const [isOnline, setIsOnline] = useState(() => {
     return typeof navigator !== 'undefined' ? navigator.onLine : true;
   });
+
+  const isMounted = useRef(false);
+  const onTriggerToastRef = useRef(onTriggerToast);
+  const languageRef = useRef(language);
+
+  // Keep refs in sync with the latest values synchronously during render
+  onTriggerToastRef.current = onTriggerToast;
+  languageRef.current = language;
+
+  useEffect(() => {
+    if (!isMounted.current) {
+      isMounted.current = true;
+      return;
+    }
+    const currentLang = languageRef.current;
+    if (isOnline) {
+      onTriggerToastRef.current?.(
+        currentLang === 'ar' ? 'تمت استعادة الاتصال بالإنترنت بنجاح! 📶' : 'Internet connection restored successfully! 📶',
+        'success'
+      );
+    } else {
+      onTriggerToastRef.current?.(
+        currentLang === 'ar' ? 'انقطع الاتصال بالإنترنت. يرجى التحقق من الشبكة. ⚠️' : 'Internet connection lost. Please check your network. ⚠️',
+        'error'
+      );
+    }
+  }, [isOnline]);
 
   // Interactive Notifications State
   const [showNotifications, setShowNotifications] = useState(false);
@@ -115,6 +148,141 @@ export default function Navbar({
 
   const [selectedNotifDetails, setSelectedNotifDetails] = useState<any | null>(null);
   const [selectedAlertDetails, setSelectedAlertDetails] = useState<any | null>(null);
+
+  const playVideoContent = (title: string) => {
+    if (!onVideoSelect) return;
+    const targetVideo: Video = {
+      id: 'vid-sara-cloud',
+      title: title || 'Cloud Engineering: From Beginner to Pro 🚀',
+      description: 'Learn everything about Cloud Computing, AWS, GCP, and Azure. Built for developers of all levels!',
+      thumbnailUrl: 'https://images.unsplash.com/photo-1544197150-b99a580bb7a8?auto=format&fit=crop&w=800&q=80',
+      videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-software-developer-working-on-his-computer-38290-large.mp4',
+      duration: '10:15',
+      views: 1240,
+      likes: 85,
+      dislikes: 2,
+      channelId: 'chan-sara-alharbi',
+      channelName: 'Sara Al-Harbi',
+      channelAvatar: 'https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&h=150&q=80',
+      category: 'Tech',
+      uploadedAt: '2 hours ago',
+      likeStatus: 'none'
+    };
+    onVideoSelect(targetVideo);
+  };
+
+  const playCommentedVideo = () => {
+    if (!onVideoSelect) return;
+    const targetVideo: Video = {
+      id: 'vid-comment-tutorial',
+      title: 'Advanced React 19 Patterns & Hooks 💻',
+      description: 'Master the latest React 19 hooks and paradigms including Server Components, Actions, and use() hook!',
+      thumbnailUrl: 'https://images.unsplash.com/photo-1633356122544-f134324a6cee?auto=format&fit=crop&w=800&q=80',
+      videoUrl: 'https://assets.mixkit.co/videos/preview/mixkit-software-developer-working-on-his-computer-38290-large.mp4',
+      duration: '14:20',
+      views: 3105,
+      likes: 245,
+      dislikes: 5,
+      channelId: 'chan-omar-farooq',
+      channelName: 'Omar Farooq',
+      channelAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&h=150&q=80',
+      category: 'Coding',
+      uploadedAt: '1 day ago',
+      likeStatus: 'none'
+    };
+    onVideoSelect(targetVideo);
+  };
+
+  const handleOpenNotificationContent = (notif: any) => {
+    handleMarkAsRead(notif.id);
+    setSelectedNotifDetails(notif);
+    setShowNotifications(false);
+
+    // Associated content action depending on notification type
+    if (notif.type === 'upload') {
+      const title = language === 'ar' ? notif.descAr : notif.descEn;
+      playVideoContent(title.replace(/[🚀📹]/g, '').trim());
+      onTriggerToast?.(
+        language === 'ar' ? 'جاري تشغيل الفيديو المرفوع 📹' : 'Playing uploaded video 📹',
+        'success'
+      );
+    } else if (notif.type === 'comment') {
+      playCommentedVideo();
+      onTriggerToast?.(
+        language === 'ar' ? 'عرض تعليقات الفيديو 💬' : 'Viewing video comment 💬',
+        'info'
+      );
+    } else if (notif.type === 'story' || notif.type === 'trend') {
+      setView?.('shorts');
+      onTriggerToast?.(
+        language === 'ar' ? 'الانتقال إلى القصص والفيديوهات القصيرة ⚡' : 'Navigating to Stories & Shorts ⚡',
+        'success'
+      );
+    } else if (notif.type === 'subscribe') {
+      setView?.('chat');
+      onTriggerToast?.(
+        language === 'ar' ? 'الانتقال إلى محادثات المشتركين 💬' : 'Navigating to Subscribers Chat 💬',
+        'success'
+      );
+    } else if (notif.type === 'milestone') {
+      setView?.('analytics');
+      onTriggerToast?.(
+        language === 'ar' ? 'الانتقال إلى لوحة معلومات القناة 📈' : 'Navigating to Channel Analytics 📈',
+        'info'
+      );
+    } else if (notif.type === 'system') {
+      onSettingsClick?.();
+      onTriggerToast?.(
+        language === 'ar' ? 'تم فتح إعدادات المنصة ⚙️' : 'Opened Platform Settings ⚙️',
+        'success'
+      );
+    }
+  };
+
+  const handleOpenAlertContent = (item: any) => {
+    onMarkAlertsAsRead?.(item.id);
+    setSelectedAlertDetails(item);
+    setShowAlertHistory(false);
+
+    const msg = item.message.toLowerCase();
+    
+    // Check if message is related to downloads/folders
+    if (
+      msg.includes('download') || 
+      msg.includes('تحميل') || 
+      msg.includes('تنزيل') || 
+      msg.includes('storage') || 
+      msg.includes('folder') || 
+      msg.includes('مجلد') || 
+      msg.includes('clean') || 
+      msg.includes('compress') || 
+      msg.includes('حفظ')
+    ) {
+      setView?.('downloads');
+      onTriggerToast?.(
+        language === 'ar' ? 'الانتقال إلى صفحة التنزيلات والمجلدات 📁' : 'Navigating to Downloads & Folders 📁',
+        'info'
+      );
+    } else if (msg.includes('playlist') || msg.includes('قائمة')) {
+      setView?.('playlists');
+      onTriggerToast?.(
+        language === 'ar' ? 'الانتقال إلى قوائم التشغيل المخصصة 📚' : 'Navigating to Custom Playlists 📚',
+        'info'
+      );
+    } else if (msg.includes('channel') || msg.includes('قناة') || msg.includes('subscribe') || msg.includes('اشتراك')) {
+      setView?.('chat');
+      onTriggerToast?.(
+        language === 'ar' ? 'الانتقال إلى محادثة القناة 💬' : 'Navigating to Channel Chat 💬',
+        'info'
+      );
+    } else if (msg.includes('profile') || msg.includes('تغيير') || msg.includes('تعديل') || msg.includes('saved') || msg.includes('حفظ') || msg.includes('success')) {
+      onSettingsClick?.();
+      onTriggerToast?.(
+        language === 'ar' ? 'عرض إعدادات الحساب والملف الشخصي ⚙️' : 'Opening Settings & Profile Panel ⚙️',
+        'success'
+      );
+    }
+  };
 
   useEffect(() => {
     localStorage.setItem('mytube_notifications', JSON.stringify(notifications));
@@ -266,10 +434,14 @@ export default function Navbar({
         <button 
           id="sidebar-toggle"
           onClick={onMenuClick}
-          className="p-2 hover:bg-gray-100 rounded-full transition-colors text-gray-500 hover:text-[#0f0f0f] cursor-pointer"
-          title="Menu"
+          className="flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 hover:bg-gray-200/80 text-gray-700 hover:text-black rounded-2xl transition-all cursor-pointer font-medium text-xs border border-gray-200/80 active:scale-95 shadow-xs"
+          title={language === 'ar' ? 'فتح قائمة التنقل المنسدلة' : 'Toggle Dropdown Navigation'}
         >
-          <Menu className="w-5 h-5" />
+          <Menu className="w-4 h-4 text-red-600 shrink-0" />
+          <span className="hidden sm:inline font-bold">
+            {language === 'ar' ? 'القائمة' : 'Menu'}
+          </span>
+          <ChevronDown className="w-3.5 h-3.5 text-gray-400 shrink-0" />
         </button>
 
         <div 
@@ -505,9 +677,7 @@ export default function Navbar({
                         <div
                           key={notif.id}
                           onClick={() => {
-                            handleMarkAsRead(notif.id);
-                            setSelectedNotifDetails(notif);
-                            setShowNotifications(false);
+                            handleOpenNotificationContent(notif);
                           }}
                           className={`p-3 hover:bg-gray-50 transition-colors flex gap-3 relative cursor-pointer group ${
                             !notif.isRead ? 'bg-red-50/10' : ''
@@ -642,9 +812,7 @@ export default function Navbar({
                         <div
                           key={item.id}
                           onClick={() => {
-                            onMarkAlertsAsRead?.(item.id);
-                            setSelectedAlertDetails(item);
-                            setShowAlertHistory(false);
+                            handleOpenAlertContent(item);
                           }}
                           className={`p-3 hover:bg-gray-50/80 transition-colors flex gap-3 relative cursor-pointer group ${
                             !item.isRead ? 'bg-orange-50/10 border-l-2 border-orange-400' : ''
@@ -845,37 +1013,78 @@ export default function Navbar({
               </div>
 
               {/* Footer Actions */}
-              <div className="mt-6 flex gap-2.5 justify-end">
+              <div className="mt-6 flex flex-wrap gap-2 justify-end">
                 {/* Custom Context Actions */}
                 {(selectedNotifDetails.type === 'upload' || selectedNotifDetails.type === 'comment') && (
                   <button
                     onClick={() => {
-                      // Perform search for video
-                      const query = language === 'ar' ? selectedNotifDetails.descAr : selectedNotifDetails.descEn;
-                      setSearchQuery(query.replace(/[💬📹🚀🔥✨🌟]/g, '').trim());
-                      onWebSearchClick?.(query.replace(/[💬📹🚀🔥✨🌟]/g, '').trim());
+                      if (selectedNotifDetails.type === 'upload') {
+                        const title = language === 'ar' ? selectedNotifDetails.descAr : selectedNotifDetails.descEn;
+                        playVideoContent(title.replace(/[🚀📹]/g, '').trim());
+                      } else {
+                        playCommentedVideo();
+                      }
                       setSelectedNotifDetails(null);
                     }}
-                    className="flex-1 sm:flex-initial px-5 py-2.5 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-bold text-xs rounded-xl shadow-sm transition-all duration-150 cursor-pointer text-center text-red-600 hover:text-white"
+                    className="px-4 py-2 bg-red-600 hover:bg-red-700 active:bg-red-800 text-white font-bold text-xs rounded-xl shadow-sm transition-all duration-150 cursor-pointer text-center"
                   >
-                    {language === 'ar' ? 'البحث عن الفيديو ومتابعته 📹' : 'Search & Watch Video 📹'}
+                    {selectedNotifDetails.type === 'upload'
+                      ? (language === 'ar' ? 'تشغيل الفيديو 📹' : 'Play Video 📹')
+                      : (language === 'ar' ? 'مشاهدة التعليق 💬' : 'View Comment 💬')}
                   </button>
                 )}
 
-                {selectedNotifDetails.type === 'story' && (
+                {(selectedNotifDetails.type === 'story' || selectedNotifDetails.type === 'trend') && (
                   <button
                     onClick={() => {
+                      setView?.('shorts');
                       setSelectedNotifDetails(null);
                     }}
-                    className="flex-1 sm:flex-initial px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all duration-150 cursor-pointer text-center text-red-600 hover:text-white"
+                    className="px-4 py-2 bg-amber-500 hover:bg-amber-600 text-white font-bold text-xs rounded-xl shadow-sm transition-all duration-150 cursor-pointer text-center"
                   >
                     {language === 'ar' ? 'عرض القصص والقصيرة ⚡' : 'Go to Stories & Shorts ⚡'}
                   </button>
                 )}
 
+                {selectedNotifDetails.type === 'subscribe' && (
+                  <button
+                    onClick={() => {
+                      setView?.('chat');
+                      setSelectedNotifDetails(null);
+                    }}
+                    className="px-4 py-2 bg-rose-550 hover:bg-rose-650 text-white font-bold text-xs rounded-xl shadow-sm transition-all duration-150 cursor-pointer text-center"
+                  >
+                    {language === 'ar' ? 'الانتقال للدردشة 💬' : 'Go to Subscribers Chat 💬'}
+                  </button>
+                )}
+
+                {selectedNotifDetails.type === 'milestone' && (
+                  <button
+                    onClick={() => {
+                      setView?.('analytics');
+                      setSelectedNotifDetails(null);
+                    }}
+                    className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all duration-150 cursor-pointer text-center"
+                  >
+                    {language === 'ar' ? 'لوحة معلومات القناة 📈' : 'Go to Analytics 📈'}
+                  </button>
+                )}
+
+                {selectedNotifDetails.type === 'system' && (
+                  <button
+                    onClick={() => {
+                      onSettingsClick?.();
+                      setSelectedNotifDetails(null);
+                    }}
+                    className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl shadow-sm transition-all duration-150 cursor-pointer text-center"
+                  >
+                    {language === 'ar' ? 'فتح الإعدادات ⚙️' : 'Open Settings ⚙️'}
+                  </button>
+                )}
+
                 <button
                   onClick={() => setSelectedNotifDetails(null)}
-                  className="px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold text-xs rounded-xl transition-all duration-150 cursor-pointer"
+                  className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-800 font-bold text-xs rounded-xl transition-all duration-150 cursor-pointer"
                 >
                   {language === 'ar' ? 'إغلاق' : 'Close'}
                 </button>
@@ -942,6 +1151,68 @@ export default function Navbar({
 
               {/* Footer Actions */}
               <div className="mt-6 flex gap-2 justify-end">
+                {(() => {
+                  const msg = selectedAlertDetails.message.toLowerCase();
+                  const isDownload = msg.includes('download') || msg.includes('تحميل') || msg.includes('تنزيل') || msg.includes('storage') || msg.includes('folder') || msg.includes('مجلد') || msg.includes('clean') || msg.includes('compress') || msg.includes('حفظ');
+                  const isPlaylist = msg.includes('playlist') || msg.includes('قائمة');
+                  const isChat = msg.includes('channel') || msg.includes('قناة') || msg.includes('subscribe') || msg.includes('اشتراك');
+                  const isProfile = msg.includes('profile') || msg.includes('تغيير') || msg.includes('تعديل') || msg.includes('saved') || msg.includes('حفظ') || msg.includes('success');
+
+                  if (isDownload) {
+                    return (
+                      <button
+                        onClick={() => {
+                          setView?.('downloads');
+                          setSelectedAlertDetails(null);
+                        }}
+                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl transition-all duration-150 cursor-pointer"
+                      >
+                        {language === 'ar' ? 'عرض التنزيلات 📁' : 'View Downloads 📁'}
+                      </button>
+                    );
+                  }
+                  if (isPlaylist) {
+                    return (
+                      <button
+                        onClick={() => {
+                          setView?.('playlists');
+                          setSelectedAlertDetails(null);
+                        }}
+                        className="px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs rounded-xl transition-all duration-150 cursor-pointer"
+                      >
+                        {language === 'ar' ? 'عرض القوائم 📚' : 'View Playlists 📚'}
+                      </button>
+                    );
+                  }
+                  if (isChat) {
+                    return (
+                      <button
+                        onClick={() => {
+                          setView?.('chat');
+                          setSelectedAlertDetails(null);
+                        }}
+                        className="px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs rounded-xl transition-all duration-150 cursor-pointer"
+                      >
+                        {language === 'ar' ? 'الدردشة 💬' : 'Go to Chat 💬'}
+                      </button>
+                    );
+                  }
+                  if (isProfile) {
+                    return (
+                      <button
+                        onClick={() => {
+                          onSettingsClick?.();
+                          setSelectedAlertDetails(null);
+                        }}
+                        className="px-4 py-2 bg-indigo-600 hover:bg-indigo-700 text-white font-bold text-xs rounded-xl transition-all duration-150 cursor-pointer"
+                      >
+                        {language === 'ar' ? 'الملف الشخصي ⚙️' : 'View Profile ⚙️'}
+                      </button>
+                    );
+                  }
+                  return null;
+                })()}
+
                 <button
                   onClick={() => {
                     onRemoveAlert?.(selectedAlertDetails.id);
@@ -954,7 +1225,7 @@ export default function Navbar({
 
                 <button
                   onClick={() => setSelectedAlertDetails(null)}
-                  className="px-5 py-2.5 bg-gray-150 hover:bg-gray-200 text-gray-800 font-bold text-xs rounded-xl transition-all duration-150 cursor-pointer"
+                  className="px-4 py-2 bg-gray-150 hover:bg-gray-200 text-gray-800 font-bold text-xs rounded-xl transition-all duration-150 cursor-pointer"
                 >
                   {language === 'ar' ? 'إغلاق' : 'Close'}
                 </button>

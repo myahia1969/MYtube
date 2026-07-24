@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { motion } from 'motion/react';
 import { Video } from '../types';
-import { Play, X, Clock, Share2, RotateCcw, Download, Trash2, CheckCircle2, GripVertical } from 'lucide-react';
+import { Play, X, Clock, Share2, RotateCcw, Download, Trash2, CheckCircle2, GripVertical, Mail, Copy, Check } from 'lucide-react';
 
 interface VideoCardProps {
   key?: string;
@@ -17,7 +17,7 @@ interface VideoCardProps {
   onToggleDownload?: () => void;
   downloadQuality?: '1080p' | '720p' | 'mp3';
   onChannelClick?: (channelId: string) => void;
-  onShare?: (video: Video) => void;
+  onShare?: (video: Video, mode?: 'clipboard' | 'email') => void;
   onWatchAgain?: () => void;
   language?: string;
   folderName?: string;
@@ -47,6 +47,8 @@ export default function VideoCard({
 }: VideoCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isPreviewActive, setIsPreviewActive] = useState(false);
+  const [showShareMenu, setShowShareMenu] = useState(false);
+  const [copiedLink, setCopiedLink] = useState(false);
   const hoverTimerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Helper to get YouTube ID
@@ -118,15 +120,16 @@ export default function VideoCard({
     initial: { 
       y: 0, 
       scale: 1,
-      boxShadow: "0 0px 0px rgba(0, 0, 0, 0)"
+      boxShadow: "0 1px 3px rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 0, 0, 0.03)"
     },
     hover: { 
-      y: -4, 
-      scale: 1.015, 
-      boxShadow: "0 10px 15px -3px rgba(0, 0, 0, 0.08), 0 4px 6px -2px rgba(0, 0, 0, 0.04)"
+      y: -6, 
+      scale: 1.018, 
+      boxShadow: "0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.05)"
     },
     tap: { 
-      scale: 0.985 
+      scale: 0.98,
+      y: -2
     }
   };
 
@@ -144,8 +147,8 @@ export default function VideoCard({
       initial="initial"
       whileHover="hover"
       whileTap="tap"
-      transition={{ type: 'spring', stiffness: 350, damping: 20 }}
-      className="group flex flex-col gap-3.5 bg-white rounded-2xl overflow-hidden cursor-pointer hover:bg-gray-100/55 p-2 border border-transparent hover:border-gray-200 select-none"
+      transition={{ type: 'spring', stiffness: 380, damping: 22 }}
+      className="group flex flex-col gap-3.5 bg-white rounded-2xl overflow-hidden cursor-pointer hover:bg-gray-100/60 p-2 border border-gray-100 hover:border-gray-200/80 select-none transition-colors"
       draggable={isInDownloads}
       onDragStart={(e) => {
         if (isInDownloads) {
@@ -328,24 +331,72 @@ export default function VideoCard({
 
         {/* Action Buttons Tray (Top-Right) */}
         <div className="absolute top-2.5 right-2.5 z-10 flex items-center gap-1.5">
-          {/* Share Quick-Action Clipboard Copy Button */}
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
-              const shareUrl = `${window.location.origin}?v=${video.id}`;
-              navigator.clipboard.writeText(shareUrl).then(() => {
-                if (onShare) {
-                  onShare(video);
-                } else {
-                  alert('Copied link: ' + shareUrl);
-                }
-              });
-            }}
-            className="p-1.5 rounded-full transition-all shadow-md backdrop-blur-sm border bg-black/70 hover:bg-red-600 border-white/10 text-white hover:scale-105 active:scale-95 cursor-pointer"
-            title={language === 'ar' ? 'مشاركة الفيديو' : 'Share Video'}
-          >
-            <Share2 className="w-3.5 h-3.5" />
-          </button>
+          {/* Share Action with Popover Menu */}
+          <div className="relative">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setShowShareMenu(prev => !prev);
+              }}
+              className="p-1.5 rounded-full transition-all shadow-md backdrop-blur-sm border bg-black/70 hover:bg-red-600 border-white/10 text-white hover:scale-105 active:scale-95 cursor-pointer"
+              title={language === 'ar' ? 'خيارات المشاركة' : 'Share Options'}
+            >
+              <Share2 className="w-3.5 h-3.5" />
+            </button>
+
+            {showShareMenu && (
+              <div 
+                onClick={(e) => e.stopPropagation()}
+                className="absolute right-0 top-full mt-1.5 w-48 bg-gray-900/95 border border-white/15 rounded-xl shadow-2xl p-1 z-30 backdrop-blur-md animate-in fade-in zoom-in-95"
+              >
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowShareMenu(false);
+                    setCopiedLink(true);
+                    setTimeout(() => setCopiedLink(false), 2000);
+                    if (onShare) {
+                      onShare(video, 'clipboard');
+                    } else {
+                      const shareUrl = `${window.location.origin}?v=${video.id}`;
+                      navigator.clipboard.writeText(shareUrl);
+                    }
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs font-medium text-gray-200 hover:bg-white/10 rounded-lg transition-colors text-left cursor-pointer"
+                >
+                  {copiedLink ? (
+                    <Check className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5 text-gray-400 shrink-0" />
+                  )}
+                  <span className="truncate">
+                    {copiedLink
+                      ? (language === 'ar' ? 'تم نسخ الرابط!' : 'Link Copied!')
+                      : (language === 'ar' ? 'نسخ رابط الفيديو' : 'Copy Link')}
+                  </span>
+                </button>
+
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowShareMenu(false);
+                    if (onShare) {
+                      onShare(video, 'email');
+                    } else {
+                      const shareUrl = `${window.location.origin}?v=${video.id}`;
+                      const subject = language === 'ar' ? `شاهد هذا الفيديو: ${video.title}` : `Check out this video: ${video.title}`;
+                      const body = language === 'ar' ? `أود مشاركة هذا الفيديو معك:\n"${video.title}"\n\n${shareUrl}` : `Check out this video:\n"${video.title}"\n\n${shareUrl}`;
+                      window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+                    }
+                  }}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 text-xs font-medium text-red-400 hover:bg-red-500/15 rounded-lg transition-colors text-left cursor-pointer"
+                >
+                  <Mail className="w-3.5 h-3.5 text-red-400 shrink-0" />
+                  <span className="truncate">{language === 'ar' ? 'مشاركة عبر البريد' : 'Share via Email'}</span>
+                </button>
+              </div>
+            )}
+          </div>
 
           {/* Download & Save Video Quick Button */}
           {onToggleDownload && (
